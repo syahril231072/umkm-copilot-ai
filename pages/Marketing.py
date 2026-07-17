@@ -39,7 +39,7 @@ def render_page() -> None:
     client = get_api_client_from_session_state(st.session_state)
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
-    session_id = str(st.session_state.get("session_id", "sesi-utama"))
+    session_id = str(st.session_state.get("session_id", ""))
     preferences = build_business_preferences(st.session_state)
     limit = int(st.session_state.get("dashboard_limit", DEFAULT_LIMIT))
 
@@ -86,7 +86,7 @@ def render_page() -> None:
                     "business_profile": preferences,
                 }
             )
-            _render_response(st, response)
+            _render_marketing_context(st, response)
 
     with tab_save:
         with st.form("marketing_form"):
@@ -118,6 +118,45 @@ def render_page() -> None:
                 limit=100,
             )
             _render_response(st, response)
+
+
+def _render_marketing_context(st: Any, response: Mapping[str, Any]) -> None:
+    """Render konteks pemasaran dengan ringkasan yang lebih ramah."""
+
+    if not response.get("success"):
+        st.error(error_message(dict(response)))
+        return
+
+    st.success("Konteks pemasaran berhasil dibangun.")
+    data = response.get("data")
+
+    if isinstance(data, Mapping):
+        product = data.get("product") or data.get("product_context")
+        recommendations = (
+            data.get("recommendations")
+            or data.get("campaign_ideas")
+            or data.get("suggestions")
+        )
+
+        if product:
+            st.subheader("Produk")
+            render_response_table(st, product)
+
+        if recommendations:
+            st.subheader("Rekomendasi")
+            render_response_table(st, recommendations)
+
+        remaining = {
+            str(key): value
+            for key, value in data.items()
+            if key not in {"warnings", "product", "product_context", "recommendations", "campaign_ideas", "suggestions"}
+        }
+        if remaining:
+            with st.expander("Detail Konteks", expanded=False):
+                render_response_table(st, remaining)
+        return
+
+    render_response_table(st, data)
 
 
 def _render_response(st: Any, response: Mapping[str, Any]) -> None:

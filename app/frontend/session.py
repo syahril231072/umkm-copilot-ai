@@ -3,18 +3,22 @@ Session Frontend
 ================
 
 Helper session state untuk Streamlit.
+
+Catatan:
+- session_id harus berupa UUID valid karena backend conversation table memakai
+  tipe UUID. Nilai lama seperti "sesi-utama" akan otomatis diganti.
 """
 
 from __future__ import annotations
 
 from typing import Any, MutableMapping
+from uuid import UUID, uuid4
 
 from app.frontend.api_client import FrontendApiClient
 
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_BUSINESS_ID = ""
-DEFAULT_SESSION_ID = "sesi-utama"
 DEFAULT_LIMIT = 1000
 DEFAULT_CURRENCY = "IDR"
 DEFAULT_TIMEZONE = "Asia/Jakarta"
@@ -27,7 +31,6 @@ def ensure_frontend_session(session_state: MutableMapping[str, Any]) -> None:
 
     session_state.setdefault("api_base_url", DEFAULT_API_BASE_URL)
     session_state.setdefault("business_id", DEFAULT_BUSINESS_ID)
-    session_state.setdefault("session_id", DEFAULT_SESSION_ID)
     session_state.setdefault("dashboard_limit", DEFAULT_LIMIT)
     session_state.setdefault("business_name", "")
     session_state.setdefault("owner_name", "")
@@ -38,6 +41,8 @@ def ensure_frontend_session(session_state: MutableMapping[str, Any]) -> None:
     session_state.setdefault("active_product_id", DEFAULT_PRODUCT_ID)
     session_state.setdefault("active_product_name", "")
     session_state.setdefault("backend_products", [])
+
+    _ensure_valid_session_id(session_state)
 
 
 def get_api_client_from_session_state(
@@ -109,8 +114,10 @@ def set_active_product_from_response(
 
     ensure_frontend_session(session_state)
 
-    product_id = str(data.get("product_id", "")).strip()
-    product_name = str(data.get("name", "")).strip()
+    product_id = str(data.get("product_id", "") or data.get("id", "")).strip()
+    product_name = str(
+        data.get("name", "") or data.get("product_name", "")
+    ).strip()
 
     session_state["active_product_id"] = product_id
     session_state["active_product_name"] = product_name
@@ -157,3 +164,40 @@ def build_common_payload(
         payload.update(extra)
 
     return payload
+
+
+def reset_frontend_session_identity(
+    session_state: MutableMapping[str, Any],
+) -> None:
+    """Buat ulang session_id UUID untuk percakapan baru."""
+
+    session_state["session_id"] = _new_session_id()
+
+
+def _ensure_valid_session_id(session_state: MutableMapping[str, Any]) -> None:
+    """Pastikan session_id adalah UUID valid."""
+
+    current_session_id = str(session_state.get("session_id", "")).strip()
+
+    if not _is_valid_uuid(current_session_id):
+        session_state["session_id"] = _new_session_id()
+
+
+def _new_session_id() -> str:
+    """Buat UUID baru untuk session percakapan."""
+
+    return str(uuid4())
+
+
+def _is_valid_uuid(value: str) -> bool:
+    """Periksa UUID."""
+
+    if not value:
+        return False
+
+    try:
+        UUID(value)
+    except (TypeError, ValueError):
+        return False
+
+    return True

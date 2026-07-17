@@ -1,11 +1,15 @@
 """
-Transaksi Pertama
-=================
+Transaksi
+=========
+
+Halaman ini dipakai untuk mencatat transaksi baru setelah profil bisnis dan
+produk tersimpan di backend. Jika transaksi pertama sudah ada, form tetap
+ditampilkan agar user bisa terus mencatat transaksi berikutnya.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from app.frontend.assets import load_frontend_assets
 from app.frontend.navigation import render_navigation, switch_page
@@ -15,6 +19,9 @@ from app.frontend.session import (
     build_business_preferences,
     ensure_frontend_session,
     get_api_client_from_session_state,
+    get_backend_products,
+    set_active_product_from_response,
+    set_backend_products,
 )
 from app.frontend.ui_components import (
     error_message,
@@ -25,11 +32,11 @@ from app.frontend.ui_components import (
 )
 
 
-PAGE_NAME = "first_transaction"
+PAGE_NAME = "transactions"
 
 
 def render_page() -> None:
-    """Render halaman transaksi pertama."""
+    """Render halaman transaksi."""
 
     st = _get_streamlit()
     st.set_page_config(page_title="Transaksi", page_icon="🧾", layout="wide")
@@ -40,7 +47,7 @@ def render_page() -> None:
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
     product_name = str(st.session_state.get("active_product_name", "Produk Aktif"))
-    session_id = str(st.session_state.get("session_id", "sesi-utama"))
+    session_id = str(st.session_state.get("session_id", ""))
     preferences = build_business_preferences(st.session_state)
     limit = int(st.session_state.get("dashboard_limit", DEFAULT_LIMIT))
 
@@ -58,8 +65,11 @@ def render_page() -> None:
     render_hero(
         st,
         eyebrow="Transaksi",
-        title="Transaksi",
-        description="Catat penjualan pertama ke backend agar fitur penuh langsung aktif.",
+        title="Catat Transaksi Penjualan",
+        description=(
+            "Catat transaksi baru ke backend. Jika transaksi pertama sudah ada, "
+            "Anda tetap bisa mencatat transaksi berikutnya dari halaman ini."
+        ),
     )
 
     if state.business_profile_ready:
@@ -77,10 +87,14 @@ def render_page() -> None:
         )
         return
 
-    if not state.product_ready:
+    products = _load_products(st, client, business_id)
+    if not products and product_id:
+        products = [{"id": product_id, "name": product_name}]
+
+    if not products:
         render_locked_page(
             st,
-            message="Produk belum tersedia.",
+            message="Produk belum tersedia. Tambahkan produk terlebih dahulu.",
             state=state,
             next_action_label="Tambah Produk",
             next_page="pages/Products.py",
@@ -88,41 +102,136 @@ def render_page() -> None:
         return
 
     if state.has_transactions:
-        st.success("Transaksi sudah tersedia. Dashboard siap digunakan.")
-        if st.button("Buka Dashboard", type="primary"):
-            switch_page(st, "pages/Dashboard.py")
+        st.success("Dashboard sudah aktif. Anda tetap dapat mencatat transaksi baru di bawah ini.")
+
+    selected_product = _select_product(st, products)
+    selected_product_id = _get_product_id(selected_product)
+    selected_product_name = _get_product_name(selected_product)
+
+    if not selected_product_id:
+        st.error("Produk terpilih belum memiliki product_id backend.")
         return
 
-    st.info(f"Produk aktif: {product_name}")
+    set_active_product_from_response(
+        st.session_state,
+        {
+            "product_id": selected_product_id,
+            "name": selected_product_name,
+        },
+    )
 
-    with st.form("first_transaction_form"):
+    with st.form("transaction_form"):
         quantity = st.number_input("Jumlah Terjual", min_value=1, value=1, step=1)
         payment_method = st.selectbox(
             "Metode Pembayaran",
             ["cash", "qris", "transfer", "credit_card", "other"],
             format_func=_payment_label,
         )
-        notes = st.text_area("Catatan", value="Transaksi pertama")
+        notes = st.text_area("Catatan", value="Transaksi penjualan")
         submitted = st.form_submit_button("Catat Transaksi", type="primary")
 
     if submitted:
         payload = {
             "business_id": business_id,
-            "product_id": product_id,
+            "product_id": selected_product_id,
             "quantity": int(quantity),
             "payment_method": str(payment_method),
             "status": "completed",
             "notes": notes,
             "session_id": session_id,
         }
+
         with st.spinner("Mencatat transaksi..."):
             response = client.record_transaction(payload)
 
         if response.get("success"):
             st.success("Transaksi berhasil dicatat.")
-            st.rerun()
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("Catat Transaksi Lain"):
+                    st.rerun()
+            with col_b:
+                if st.button("Buka Dashboard"):
+                    switch_page(st, "pages/Dashboard.py")
         else:
             st.error(error_message(response))
+            attempts = response.get("_path_attempts")
+            if attempts:
+                with st.expander("Detail endpoint yang dicoba"):
+                    for attempt in attempts:
+                        st.code(str(attempt))
+
+
+def _load_products(st: Any, client: Any, business_id: str) -> list[dict[str, Any]]:
+    """Muat produk dari backend atau session."""
+
+    products = get_backend_products(st.session_state)
+    if products:
+        return products
+
+    response = client.list_products(business_id=business_id)
+    if response.get("success"):
+        data = response.get("data", {})
+        loaded_products = data.get("products", []) if isinstance(data, Mapping) else []
+        if isinstance(loaded_products, list):
+            products = [
+                dict(product)
+                for product in loaded_products
+                if isinstance(product, Mapping)
+            ]
+            set_backend_products(st.session_state, products)
+            return products
+
+    return []
+
+
+def _select_product(st: Any, products: list[dict[str, Any]]) -> dict[str, Any]:
+    """Render pilihan produk."""
+
+    options = {
+        _product_label(product): product
+        for product in products
+        if _get_product_id(product)
+    }
+
+    if not options:
+        return {}
+
+    selected_label = st.selectbox("Produk", list(options.keys()))
+    return options[selected_label]
+
+
+def _product_label(product: Mapping[str, Any]) -> str:
+    """Label produk."""
+
+    name = _get_product_name(product)
+    stock = product.get("stock")
+    price = product.get("selling_price") or product.get("price")
+
+    parts = [name]
+    if price is not None:
+        parts.append(f"Rp{price}")
+    if stock is not None:
+        parts.append(f"stok {stock}")
+
+    return " · ".join(parts)
+
+
+def _get_product_id(product: Mapping[str, Any]) -> str:
+    """Ambil product id."""
+
+    return str(product.get("product_id") or product.get("id") or "").strip()
+
+
+def _get_product_name(product: Mapping[str, Any]) -> str:
+    """Ambil product name."""
+
+    return str(
+        product.get("name")
+        or product.get("product_name")
+        or product.get("id")
+        or "Produk"
+    ).strip()
 
 
 def _payment_label(value: str) -> str:
