@@ -16,6 +16,7 @@ from app.frontend.session import (
     ensure_frontend_session,
     get_api_client_from_session_state,
     hydrate_business_from_backend,
+    return_to_welcome,
     start_create_new_business_flow,
 )
 from app.frontend.ui_components import (
@@ -66,13 +67,25 @@ def render_app() -> None:
 
     render_hero(
         st,
-        eyebrow="Selamat datang",
+        eyebrow="Welcome",
         title="UMKM Copilot AI",
         description=(
             "Pilih business workspace, tambahkan produk, lalu catat transaksi. "
-            "Setiap business_id memiliki dashboard dan data operasional sendiri."
+            "Pengguna dapat maju dan mundur antar langkah tanpa kehilangan business aktif."
         ),
     )
+
+    if bool(st.session_state.get("create_new_business_mode")):
+        st.info("Anda sedang berada dalam mode buat business baru.")
+        col_back, col_continue = st.columns(2)
+        with col_back:
+            if st.button("Kembali ke Welcome / Dashboard Awal", type="primary"):
+                return_to_welcome(st.session_state)
+                st.rerun()
+        with col_continue:
+            if st.button("Lanjut Isi Business Baru"):
+                switch_page(st, "pages/Business_Profile.py")
+        return
 
     if state.business_profile_ready:
         render_business_header(st, preferences)

@@ -21,9 +21,11 @@ from app.frontend.session import (
     get_business_profiles,
     hydrate_business_from_backend,
     refresh_business_profiles_from_backend,
+    return_to_welcome,
     set_active_product_from_response,
     set_backend_products,
     set_business_from_response,
+    set_onboarding_step,
     start_create_new_business_flow,
 )
 from app.frontend.ui_components import (
@@ -45,6 +47,7 @@ def render_page() -> None:
     st.set_page_config(page_title="Produk", page_icon="📦", layout="wide")
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
+    set_onboarding_step(st.session_state, "products")
 
     client = get_api_client_from_session_state(st.session_state)
 
@@ -70,7 +73,7 @@ def render_page() -> None:
 
     render_hero(
         st,
-        eyebrow="Produk",
+        eyebrow="Langkah 2",
         title="Kelola Produk",
         description=(
             "Tambah produk baru, pilih produk aktif, dan pastikan produk tersimpan "
@@ -78,6 +81,7 @@ def render_page() -> None:
         ),
     )
 
+    _render_step_navigation(st)
     _render_business_workspace_controls(st, client)
 
     if state.business_profile_ready:
@@ -90,7 +94,7 @@ def render_page() -> None:
             st,
             message="Belum ada business aktif. Pilih business existing atau buat business baru terlebih dahulu.",
             state=state,
-            next_action_label="Buka Profil Bisnis",
+            next_action_label="Kembali ke Profil Bisnis",
             next_page="pages/Business_Profile.py",
         )
         return
@@ -99,6 +103,22 @@ def render_page() -> None:
     _render_existing_products(st, client, business_id)
     st.divider()
     _render_create_product_form(st, client, business_id)
+
+
+def _render_step_navigation(st: Any) -> None:
+    """Render navigasi mundur/maju pada step produk."""
+
+    col_welcome, col_back, col_next = st.columns(3)
+    with col_welcome:
+        if st.button("← Welcome / Dashboard Awal"):
+            return_to_welcome(st.session_state)
+            switch_page(st, "app.py")
+    with col_back:
+        if st.button("← Profil Bisnis"):
+            switch_page(st, "pages/Business_Profile.py")
+    with col_next:
+        if st.button("Transaksi →"):
+            switch_page(st, "pages/Transactions.py")
 
 
 def _render_business_workspace_controls(st: Any, client: Any) -> None:

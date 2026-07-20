@@ -40,6 +40,8 @@ def ensure_frontend_session(session_state: MutableMapping[str, Any]) -> None:
     session_state.setdefault("business_profiles", [])
     session_state.setdefault("business_hydration_attempted", False)
     session_state.setdefault("create_new_business_mode", False)
+    session_state.setdefault("previous_business_profile", {})
+    session_state.setdefault("onboarding_step", "welcome")
 
     _ensure_valid_session_id(session_state)
 
@@ -50,7 +52,6 @@ def get_api_client_from_session_state(
     """Bangun API client dari session state."""
 
     ensure_frontend_session(session_state)
-
     return FrontendApiClient(api_base_url=str(session_state["api_base_url"]))
 
 
@@ -63,8 +64,8 @@ def hydrate_business_from_backend(
     """
     Hydrate business aktif dari backend jika session belum memiliki business_id.
 
-    Returns:
-        True jika business_id valid tersedia setelah proses hydrate.
+    Dalam create_new_business_mode, auto-hydrate dimatikan agar user tidak
+    otomatis dikembalikan ke business existing ketika sedang membuat business baru.
     """
 
     ensure_frontend_session(session_state)
@@ -187,20 +188,65 @@ def get_business_profiles(
 
 
 def start_create_new_business_flow(session_state: MutableMapping[str, Any]) -> None:
-    """Aktifkan mode pembuatan business baru."""
+    """
+    Aktifkan mode pembuatan business baru.
+
+    Business aktif saat ini disimpan sebagai previous_business_profile supaya
+    user bisa kembali ke Welcome/Dashboard awal tanpa mengetik business baru.
+    """
 
     ensure_frontend_session(session_state)
+
+    current_profile = _current_business_profile(session_state)
+    if current_profile.get("business_id"):
+        session_state["previous_business_profile"] = current_profile
+
     clear_active_business(session_state)
     session_state["create_new_business_mode"] = True
     session_state["business_hydration_attempted"] = True
+    session_state["onboarding_step"] = "business_profile"
 
 
 def cancel_create_new_business_flow(session_state: MutableMapping[str, Any]) -> None:
-    """Batalkan mode pembuatan business baru."""
+    """
+    Batalkan mode pembuatan business baru dan pulihkan business sebelumnya.
+
+    Jika tidak ada previous business, hydration akan diizinkan lagi agar app
+    dapat mengambil business existing dari backend.
+    """
 
     ensure_frontend_session(session_state)
+    previous_profile = session_state.get("previous_business_profile", {})
+
     session_state["create_new_business_mode"] = False
     session_state["business_hydration_attempted"] = False
+    session_state["onboarding_step"] = "welcome"
+
+    if isinstance(previous_profile, Mapping) and previous_profile.get("business_id"):
+        set_business_from_response(session_state, previous_profile)
+    else:
+        clear_active_business(session_state)
+
+
+def return_to_welcome(session_state: MutableMapping[str, Any]) -> None:
+    """Kembali ke Welcome/Dashboard awal dari langkah onboarding mana pun."""
+
+    ensure_frontend_session(session_state)
+
+    if bool(session_state.get("create_new_business_mode")):
+        cancel_create_new_business_flow(session_state)
+    else:
+        session_state["onboarding_step"] = "welcome"
+
+
+def set_onboarding_step(
+    session_state: MutableMapping[str, Any],
+    step: str,
+) -> None:
+    """Simpan posisi langkah onboarding frontend."""
+
+    ensure_frontend_session(session_state)
+    session_state["onboarding_step"] = step
 
 
 def clear_active_business(session_state: MutableMapping[str, Any]) -> None:
@@ -224,7 +270,6 @@ def has_business_profile(session_state: MutableMapping[str, Any]) -> bool:
     """Periksa apakah profil bisnis aktif sudah tersedia."""
 
     ensure_frontend_session(session_state)
-
     return _is_valid_uuid(str(session_state.get("business_id", "")).strip())
 
 
@@ -232,7 +277,6 @@ def has_active_product(session_state: MutableMapping[str, Any]) -> bool:
     """Periksa apakah produk aktif sudah tersedia."""
 
     ensure_frontend_session(session_state)
-
     return bool(str(session_state.get("active_product_id", "")).strip())
 
 
@@ -275,6 +319,8 @@ def set_business_from_response(
     session_state["language"] = normalized["language"]
     session_state["create_new_business_mode"] = False
     session_state["business_hydration_attempted"] = True
+
+    _upsert_business_profile(session_state, normalized)
 
     if previous_business_id != next_business_id:
         session_state["active_product_id"] = ""
@@ -350,6 +396,44 @@ def reset_frontend_session_identity(
     """Buat ulang session_id UUID untuk percakapan baru."""
 
     session_state["session_id"] = _new_session_id()
+
+
+def _current_business_profile(
+    session_state: MutableMapping[str, Any],
+) -> dict[str, str]:
+    """Ambil snapshot business aktif."""
+
+    return {
+        "business_id": str(session_state.get("business_id", "")).strip(),
+        "business_name": str(session_state.get("business_name", "")).strip(),
+        "owner_name": str(session_state.get("owner_name", "")).strip(),
+        "business_type": str(session_state.get("business_type", "")).strip(),
+        "currency": str(session_state.get("currency", DEFAULT_CURRENCY)).strip(),
+        "timezone": str(session_state.get("timezone", DEFAULT_TIMEZONE)).strip(),
+        "language": str(session_state.get("language", DEFAULT_LANGUAGE)).strip(),
+    }
+
+
+def _upsert_business_profile(
+    session_state: MutableMapping[str, Any],
+    profile: dict[str, Any],
+) -> None:
+    """Tambahkan atau update business profile pada cache frontend."""
+
+    profiles = get_business_profiles(session_state)
+    business_id = str(profile.get("business_id", "")).strip()
+
+    updated = False
+    for index, existing in enumerate(profiles):
+        if str(existing.get("business_id", "")).strip() == business_id:
+            profiles[index] = dict(profile)
+            updated = True
+            break
+
+    if not updated:
+        profiles.append(dict(profile))
+
+    session_state["business_profiles"] = profiles
 
 
 def _ensure_valid_session_id(session_state: MutableMapping[str, Any]) -> None:

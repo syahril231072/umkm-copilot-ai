@@ -2,9 +2,7 @@
 Transaksi
 =========
 
-Halaman ini dipakai untuk mencatat transaksi baru setelah profil bisnis dan
-produk tersimpan di backend. Jika transaksi pertama sudah ada, form tetap
-ditampilkan agar user bisa terus mencatat transaksi berikutnya.
+Halaman untuk mencatat transaksi pada business aktif.
 """
 
 from __future__ import annotations
@@ -20,8 +18,11 @@ from app.frontend.session import (
     ensure_frontend_session,
     get_api_client_from_session_state,
     get_backend_products,
+    hydrate_business_from_backend,
+    return_to_welcome,
     set_active_product_from_response,
     set_backend_products,
+    set_onboarding_step,
 )
 from app.frontend.ui_components import (
     error_message,
@@ -42,8 +43,14 @@ def render_page() -> None:
     st.set_page_config(page_title="Transaksi", page_icon="🧾", layout="wide")
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
+    set_onboarding_step(st.session_state, "transactions")
 
     client = get_api_client_from_session_state(st.session_state)
+
+    if not bool(st.session_state.get("create_new_business_mode")):
+        with st.spinner("Memuat workspace bisnis..."):
+            hydrate_business_from_backend(st.session_state, client)
+
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
     product_name = str(st.session_state.get("active_product_name", "Produk Aktif"))
@@ -64,13 +71,12 @@ def render_page() -> None:
 
     render_hero(
         st,
-        eyebrow="Transaksi",
-        title="Catat Transaksi Penjualan",
-        description=(
-            "Catat transaksi baru ke backend. Jika transaksi pertama sudah ada, "
-            "Anda tetap bisa mencatat transaksi berikutnya dari halaman ini."
-        ),
+        eyebrow="Langkah 3",
+        title="Catat Transaksi",
+        description="Catat transaksi baru ke backend untuk business aktif.",
     )
+
+    _render_step_navigation(st)
 
     if state.business_profile_ready:
         render_business_header(st, preferences)
@@ -80,9 +86,9 @@ def render_page() -> None:
     if not state.business_profile_ready:
         render_locked_page(
             st,
-            message="Profil bisnis belum tersedia.",
+            message="Business aktif belum tersedia.",
             state=state,
-            next_action_label="Isi Profil Bisnis",
+            next_action_label="Kembali ke Profil Bisnis",
             next_page="pages/Business_Profile.py",
         )
         return
@@ -96,13 +102,10 @@ def render_page() -> None:
             st,
             message="Produk belum tersedia. Tambahkan produk terlebih dahulu.",
             state=state,
-            next_action_label="Tambah Produk",
+            next_action_label="Kembali ke Produk",
             next_page="pages/Products.py",
         )
         return
-
-    if state.has_transactions:
-        st.success("Dashboard sudah aktif. Anda tetap dapat mencatat transaksi baru di bawah ini.")
 
     selected_product = _select_product(st, products)
     selected_product_id = _get_product_id(selected_product)
@@ -146,11 +149,14 @@ def render_page() -> None:
 
         if response.get("success"):
             st.success("Transaksi berhasil dicatat.")
-            col_a, col_b = st.columns(2)
+            col_a, col_b, col_c = st.columns(3)
             with col_a:
                 if st.button("Catat Transaksi Lain"):
                     st.rerun()
             with col_b:
+                if st.button("Kembali ke Produk"):
+                    switch_page(st, "pages/Products.py")
+            with col_c:
                 if st.button("Buka Dashboard"):
                     switch_page(st, "pages/Dashboard.py")
         else:
@@ -160,6 +166,22 @@ def render_page() -> None:
                 with st.expander("Detail endpoint yang dicoba"):
                     for attempt in attempts:
                         st.code(str(attempt))
+
+
+def _render_step_navigation(st: Any) -> None:
+    """Render navigasi mundur/maju pada transaksi."""
+
+    col_welcome, col_back, col_dash = st.columns(3)
+    with col_welcome:
+        if st.button("← Welcome / Dashboard Awal"):
+            return_to_welcome(st.session_state)
+            switch_page(st, "app.py")
+    with col_back:
+        if st.button("← Produk"):
+            switch_page(st, "pages/Products.py")
+    with col_dash:
+        if st.button("Dashboard →"):
+            switch_page(st, "pages/Dashboard.py")
 
 
 def _load_products(st: Any, client: Any, business_id: str) -> list[dict[str, Any]]:

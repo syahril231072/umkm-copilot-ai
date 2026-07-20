@@ -17,7 +17,9 @@ from app.frontend.session import (
     ensure_frontend_session,
     get_api_client_from_session_state,
     hydrate_business_from_backend,
+    return_to_welcome,
     set_business_from_response,
+    set_onboarding_step,
     start_create_new_business_flow,
 )
 from app.frontend.ui_components import (
@@ -38,6 +40,7 @@ def render_page() -> None:
     st.set_page_config(page_title="Profil Bisnis", page_icon="🏪", layout="wide")
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
+    set_onboarding_step(st.session_state, "business_profile")
 
     client = get_api_client_from_session_state(st.session_state)
     create_new_mode = bool(st.session_state.get("create_new_business_mode"))
@@ -69,17 +72,19 @@ def render_page() -> None:
         description="Pilih business existing atau buat business baru untuk workspace terpisah.",
     )
 
+    _render_step_navigation(st, create_new_mode=create_new_mode)
+
     if state.business_profile_ready and not create_new_mode:
         render_business_header(st, preferences)
         st.success("Profil bisnis ditemukan dari backend dan sudah aktif.")
 
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            if st.button("Lanjut ke Dashboard", type="primary"):
-                switch_page(st, "pages/Dashboard.py")
-        with col_b:
-            if st.button("Lanjut ke Produk"):
+            if st.button("Lanjut ke Produk", type="primary"):
                 switch_page(st, "pages/Products.py")
+        with col_b:
+            if st.button("Buka Dashboard"):
+                switch_page(st, "pages/Dashboard.py")
         with col_c:
             if st.button("Buat Business Baru"):
                 start_create_new_business_flow(st.session_state)
@@ -90,9 +95,6 @@ def render_page() -> None:
 
     if create_new_mode:
         st.info("Mode buat business baru aktif. Isi form berikut untuk membuat business_id baru.")
-        if st.button("Batal Buat Business Baru"):
-            cancel_create_new_business_flow(st.session_state)
-            st.rerun()
 
     with st.form("business_profile_form"):
         business_name = st.text_input("Nama Bisnis", placeholder="Contoh: Cabang Baru")
@@ -126,11 +128,31 @@ def render_page() -> None:
             if isinstance(data, dict):
                 set_business_from_response(st.session_state, data)
                 st.success("Business berhasil disimpan dan dijadikan business aktif.")
-                st.rerun()
+                switch_page(st, "pages/Products.py")
             else:
                 st.error("Response profil bisnis tidak sesuai.")
         else:
             st.error(error_message(response))
+
+
+def _render_step_navigation(st: Any, *, create_new_mode: bool) -> None:
+    """Render navigasi mundur/maju untuk onboarding."""
+
+    col_back, col_cancel, col_next = st.columns(3)
+
+    with col_back:
+        if st.button("← Welcome / Dashboard Awal"):
+            return_to_welcome(st.session_state)
+            switch_page(st, "app.py")
+
+    with col_cancel:
+        if create_new_mode and st.button("Batalkan Business Baru"):
+            cancel_create_new_business_flow(st.session_state)
+            switch_page(st, "app.py")
+
+    with col_next:
+        if not create_new_mode and st.button("Lanjut ke Produk →"):
+            switch_page(st, "pages/Products.py")
 
 
 def _get_streamlit() -> Any:
