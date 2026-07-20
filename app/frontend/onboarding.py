@@ -32,12 +32,22 @@ def build_onboarding_state(
     product_id: str,
     dashboard_response: Mapping[str, Any] | None = None,
 ) -> OnboardingState:
-    """Bangun status onboarding."""
+    """
+    Bangun status onboarding.
+
+    Backend dashboard menjadi sumber validasi tambahan agar frontend tidak
+    berhenti hanya karena session_state kehilangan active_product_id.
+    """
 
     business_profile_ready = is_valid_uuid(business_id)
-    product_ready = bool(str(product_id).strip())
-    has_transactions = _has_transactions_from_dashboard(dashboard_response)
-    dashboard_ready = business_profile_ready and product_ready and has_transactions
+    dashboard_data = _extract_dashboard_data(dashboard_response)
+
+    product_ready = bool(str(product_id).strip()) or _has_products_from_dashboard(
+        dashboard_data
+    )
+    has_transactions = _has_transactions_from_dashboard_data(dashboard_data)
+
+    dashboard_ready = business_profile_ready and has_transactions
 
     if not business_profile_ready:
         next_step = "business_profile"
@@ -97,24 +107,146 @@ def get_current_step_number(state: OnboardingState) -> int:
     return 4
 
 
-def _has_transactions_from_dashboard(
+def _extract_dashboard_data(
     dashboard_response: Mapping[str, Any] | None,
-) -> bool:
-    """Deteksi transaksi dari response dashboard."""
+) -> Mapping[str, Any]:
+    """
+    Ambil data dashboard dari beberapa bentuk response backend.
 
-    if not dashboard_response or not dashboard_response.get("success"):
-        return False
+    Bentuk yang didukung:
+    - response["data"]["dashboard"]
+    - response["data"]
+    - response["dashboard"]
+    - response langsung sebagai dashboard dict
+    """
+
+    if not dashboard_response:
+        return {}
+
+    if dashboard_response.get("success") is False:
+        return {}
 
     data = dashboard_response.get("data")
-    if not isinstance(data, Mapping):
+
+    if isinstance(data, Mapping):
+        nested_dashboard = data.get("dashboard")
+        if isinstance(nested_dashboard, Mapping):
+            return nested_dashboard
+
+        if _looks_like_dashboard(data):
+            return data
+
+    direct_dashboard = dashboard_response.get("dashboard")
+    if isinstance(direct_dashboard, Mapping):
+        return direct_dashboard
+
+    if _looks_like_dashboard(dashboard_response):
+        return dashboard_response
+
+    return {}
+
+
+def _looks_like_dashboard(value: Mapping[str, Any]) -> bool:
+    """Periksa apakah mapping terlihat seperti payload dashboard."""
+
+    dashboard_keys = (
+        "kpi_cards",
+        "sales_summary",
+        "inventory_summary",
+        "product_summary",
+        "customer_summary",
+        "top_products_by_revenue",
+        "top_products_by_quantity",
+    )
+
+    return any(key in value for key in dashboard_keys)
+
+
+def _has_products_from_dashboard(
+    dashboard_data: Mapping[str, Any],
+) -> bool:
+    """Deteksi produk dari data dashboard backend."""
+
+    if not dashboard_data:
         return False
 
-    sales_summary = data.get("sales_summary")
+    product_summary = dashboard_data.get("product_summary")
+    if isinstance(product_summary, Mapping):
+        if _mapping_has_positive_value(
+            product_summary,
+            keywords=("product", "active", "total"),
+        ):
+            return True
+
+    inventory_summary = dashboard_data.get("inventory_summary")
+    if isinstance(inventory_summary, Mapping):
+        if _mapping_has_positive_value(
+            inventory_summary,
+            keywords=("inventory", "stock", "item", "unit"),
+        ):
+            return True
+
+    kpi_cards = dashboard_data.get("kpi_cards")
+    if isinstance(kpi_cards, list):
+        for card in kpi_cards:
+            if not isinstance(card, Mapping):
+                continue
+
+            key = str(card.get("key", "")).lower()
+            label = str(card.get("label", "")).lower()
+            value = card.get("value")
+
+            if "product" in key or "product" in label:
+                number = _to_decimal(value)
+                if number is not None and number > 0:
+                    return True
+
+    return False
+
+
+def _has_transactions_from_dashboard_data(
+    dashboard_data: Mapping[str, Any],
+) -> bool:
+    """Deteksi transaksi dari data dashboard yang sudah dinormalisasi."""
+
+    if not dashboard_data:
+        return False
+
+    sales_summary = dashboard_data.get("sales_summary")
     if isinstance(sales_summary, Mapping):
         return _mapping_has_positive_value(
             sales_summary,
-            keywords=("transaction", "revenue", "sales", "quantity", "order", "total"),
+            keywords=(
+                "transaction",
+                "revenue",
+                "sales",
+                "quantity",
+                "order",
+                "total",
+            ),
         )
+
+    kpi_cards = dashboard_data.get("kpi_cards")
+    if isinstance(kpi_cards, list):
+        for card in kpi_cards:
+            if not isinstance(card, Mapping):
+                continue
+
+            key = str(card.get("key", "")).lower()
+            label = str(card.get("label", "")).lower()
+            value = card.get("value")
+
+            has_transaction_label = (
+                "transaction" in key
+                or "transaction" in label
+                or "revenue" in key
+                or "revenue" in label
+            )
+
+            if has_transaction_label:
+                number = _to_decimal(value)
+                if number is not None and number > 0:
+                    return True
 
     return False
 
