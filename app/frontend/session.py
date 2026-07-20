@@ -3,15 +3,11 @@ Session Frontend
 ================
 
 Helper session state untuk Streamlit.
-
-Catatan:
-- session_id harus berupa UUID valid karena backend conversation table memakai
-  tipe UUID. Nilai lama seperti "sesi-utama" akan otomatis diganti.
 """
 
 from __future__ import annotations
 
-from typing import Any, MutableMapping
+from typing import Any, Mapping, MutableMapping
 from uuid import UUID, uuid4
 
 from app.frontend.api_client import FrontendApiClient
@@ -41,6 +37,9 @@ def ensure_frontend_session(session_state: MutableMapping[str, Any]) -> None:
     session_state.setdefault("active_product_id", DEFAULT_PRODUCT_ID)
     session_state.setdefault("active_product_name", "")
     session_state.setdefault("backend_products", [])
+    session_state.setdefault("business_profiles", [])
+    session_state.setdefault("business_hydration_attempted", False)
+    session_state.setdefault("create_new_business_mode", False)
 
     _ensure_valid_session_id(session_state)
 
@@ -55,12 +54,178 @@ def get_api_client_from_session_state(
     return FrontendApiClient(api_base_url=str(session_state["api_base_url"]))
 
 
+def hydrate_business_from_backend(
+    session_state: MutableMapping[str, Any],
+    client: FrontendApiClient,
+    *,
+    force: bool = False,
+) -> bool:
+    """
+    Hydrate business aktif dari backend jika session belum memiliki business_id.
+
+    Returns:
+        True jika business_id valid tersedia setelah proses hydrate.
+    """
+
+    ensure_frontend_session(session_state)
+
+    if bool(session_state.get("create_new_business_mode")) and not force:
+        return False
+
+    current_business_id = str(session_state.get("business_id", "")).strip()
+    if _is_valid_uuid(current_business_id) and not force:
+        return True
+
+    if session_state.get("business_hydration_attempted") is True and not force:
+        return _is_valid_uuid(str(session_state.get("business_id", "")).strip())
+
+    session_state["business_hydration_attempted"] = True
+
+    response = client.list_business_profiles(limit=100)
+    if not response.get("success"):
+        return False
+
+    profiles = extract_business_profiles_from_response(response)
+    session_state["business_profiles"] = profiles
+
+    if not profiles:
+        return False
+
+    set_business_from_response(session_state, profiles[0])
+    return _is_valid_uuid(str(session_state.get("business_id", "")).strip())
+
+
+def refresh_business_profiles_from_backend(
+    session_state: MutableMapping[str, Any],
+    client: FrontendApiClient,
+) -> list[dict[str, Any]]:
+    """Refresh daftar business profiles dari backend."""
+
+    ensure_frontend_session(session_state)
+
+    response = client.list_business_profiles(limit=100)
+    if not response.get("success"):
+        return get_business_profiles(session_state)
+
+    profiles = extract_business_profiles_from_response(response)
+    session_state["business_profiles"] = profiles
+    session_state["business_hydration_attempted"] = True
+
+    return profiles
+
+
+def extract_business_profiles_from_response(
+    response: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Ambil daftar business profile dari berbagai bentuk response backend."""
+
+    data = response.get("data")
+    raw_profiles: Any
+
+    if isinstance(data, Mapping):
+        raw_profiles = (
+            data.get("businesses")
+            or data.get("business_profiles")
+            or data.get("profiles")
+            or data.get("items")
+            or []
+        )
+    elif isinstance(data, list):
+        raw_profiles = data
+    else:
+        raw_profiles = []
+
+    if isinstance(raw_profiles, Mapping):
+        raw_profiles = [raw_profiles]
+
+    if not isinstance(raw_profiles, list):
+        return []
+
+    profiles: list[dict[str, Any]] = []
+    for item in raw_profiles:
+        if isinstance(item, Mapping):
+            normalized = normalize_business_profile(item)
+            if normalized.get("business_id"):
+                profiles.append(normalized)
+
+    return profiles
+
+
+def normalize_business_profile(data: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalisasi business profile dari backend."""
+
+    business_id = (
+        data.get("business_id")
+        or data.get("id")
+        or data.get("uuid")
+        or ""
+    )
+
+    return {
+        "business_id": str(business_id).strip(),
+        "business_name": str(data.get("business_name") or "").strip(),
+        "owner_name": str(data.get("owner_name") or "").strip(),
+        "business_type": str(data.get("business_type") or "").strip(),
+        "currency": str(data.get("currency") or DEFAULT_CURRENCY).strip(),
+        "timezone": str(data.get("timezone") or DEFAULT_TIMEZONE).strip(),
+        "language": str(data.get("language") or DEFAULT_LANGUAGE).strip(),
+    }
+
+
+def get_business_profiles(
+    session_state: MutableMapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Ambil daftar business profiles dari session."""
+
+    ensure_frontend_session(session_state)
+    profiles = session_state.get("business_profiles", [])
+
+    if isinstance(profiles, list):
+        return [dict(profile) for profile in profiles if isinstance(profile, dict)]
+
+    return []
+
+
+def start_create_new_business_flow(session_state: MutableMapping[str, Any]) -> None:
+    """Aktifkan mode pembuatan business baru."""
+
+    ensure_frontend_session(session_state)
+    clear_active_business(session_state)
+    session_state["create_new_business_mode"] = True
+    session_state["business_hydration_attempted"] = True
+
+
+def cancel_create_new_business_flow(session_state: MutableMapping[str, Any]) -> None:
+    """Batalkan mode pembuatan business baru."""
+
+    ensure_frontend_session(session_state)
+    session_state["create_new_business_mode"] = False
+    session_state["business_hydration_attempted"] = False
+
+
+def clear_active_business(session_state: MutableMapping[str, Any]) -> None:
+    """Kosongkan business aktif tanpa menghapus daftar business profiles."""
+
+    ensure_frontend_session(session_state)
+
+    session_state["business_id"] = ""
+    session_state["business_name"] = ""
+    session_state["owner_name"] = ""
+    session_state["business_type"] = ""
+    session_state["currency"] = DEFAULT_CURRENCY
+    session_state["timezone"] = DEFAULT_TIMEZONE
+    session_state["language"] = DEFAULT_LANGUAGE
+    session_state["active_product_id"] = ""
+    session_state["active_product_name"] = ""
+    session_state["backend_products"] = []
+
+
 def has_business_profile(session_state: MutableMapping[str, Any]) -> bool:
     """Periksa apakah profil bisnis aktif sudah tersedia."""
 
     ensure_frontend_session(session_state)
 
-    return bool(str(session_state.get("business_id", "")).strip())
+    return _is_valid_uuid(str(session_state.get("business_id", "")).strip())
 
 
 def has_active_product(session_state: MutableMapping[str, Any]) -> bool:
@@ -91,32 +256,45 @@ def build_business_preferences(
 
 def set_business_from_response(
     session_state: MutableMapping[str, Any],
-    data: dict[str, Any],
+    data: Mapping[str, Any],
 ) -> None:
     """Simpan profil bisnis dari response backend."""
 
     ensure_frontend_session(session_state)
+    normalized = normalize_business_profile(data)
 
-    session_state["business_id"] = str(data.get("business_id", "")).strip()
-    session_state["business_name"] = str(data.get("business_name", "")).strip()
-    session_state["owner_name"] = str(data.get("owner_name", "")).strip()
-    session_state["business_type"] = str(data.get("business_type", "")).strip()
-    session_state["currency"] = str(data.get("currency", DEFAULT_CURRENCY)).strip()
-    session_state["timezone"] = str(data.get("timezone", DEFAULT_TIMEZONE)).strip()
-    session_state["language"] = str(data.get("language", DEFAULT_LANGUAGE)).strip()
+    previous_business_id = str(session_state.get("business_id", "")).strip()
+    next_business_id = normalized["business_id"]
+
+    session_state["business_id"] = next_business_id
+    session_state["business_name"] = normalized["business_name"]
+    session_state["owner_name"] = normalized["owner_name"]
+    session_state["business_type"] = normalized["business_type"]
+    session_state["currency"] = normalized["currency"]
+    session_state["timezone"] = normalized["timezone"]
+    session_state["language"] = normalized["language"]
+    session_state["create_new_business_mode"] = False
+    session_state["business_hydration_attempted"] = True
+
+    if previous_business_id != next_business_id:
+        session_state["active_product_id"] = ""
+        session_state["active_product_name"] = ""
+        session_state["backend_products"] = []
 
 
 def set_active_product_from_response(
     session_state: MutableMapping[str, Any],
-    data: dict[str, Any],
+    data: Mapping[str, Any],
 ) -> None:
     """Simpan produk aktif dari response backend."""
 
     ensure_frontend_session(session_state)
 
-    product_id = str(data.get("product_id", "") or data.get("id", "")).strip()
+    product_id = str(data.get("product_id") or data.get("id") or "").strip()
     product_name = str(
-        data.get("name", "") or data.get("product_name", "")
+        data.get("name")
+        or data.get("product_name")
+        or ""
     ).strip()
 
     session_state["active_product_id"] = product_id

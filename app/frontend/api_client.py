@@ -4,12 +4,11 @@ Klien API Frontend
 
 Klien HTTP untuk menghubungkan Streamlit dengan FastAPI.
 
-Catatan penting:
-- Router onboarding baru memakai prefix /api/v1/onboarding.
-- Router bawaan project memakai prefix langsung, misalnya:
-  /transactions, /analytics, /business, /marketing, /insights, /exports, /router.
-- Client ini mencoba endpoint non-/api/v1 terlebih dahulu untuk router bawaan
-  dan tetap menyediakan fallback ke /api/v1 untuk kompatibilitas.
+Catatan:
+- Frontend tidak mengakses Repository/Service/Database secara langsung.
+- Seluruh request backend melewati FrontendApiClient.
+- Endpoint lama project bisa berjalan dengan atau tanpa prefix /api/v1,
+  sehingga client memakai fallback path untuk kompatibilitas.
 """
 
 from __future__ import annotations
@@ -48,8 +47,31 @@ class FrontendApiClient:
 
         return self._normalize_health_response(self._request("GET", "/health"))
 
+    def list_business_profiles(self, limit: int = 100) -> dict[str, Any]:
+        """Ambil daftar business profile dari backend."""
+
+        return self._request_with_fallback(
+            "GET",
+            [
+                "/business/profiles",
+                "/api/v1/business/profiles",
+            ],
+            query={"limit": limit},
+        )
+
+    def get_active_business_profile(self) -> dict[str, Any]:
+        """Ambil business profile aktif dari backend."""
+
+        return self._request_with_fallback(
+            "GET",
+            [
+                "/business/active-profile",
+                "/api/v1/business/active-profile",
+            ],
+        )
+
     def create_business_profile(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Buat profil bisnis melalui router onboarding."""
+        """Buat atau resolve profil bisnis melalui router onboarding."""
 
         return self._request_with_fallback(
             "POST",
@@ -87,7 +109,7 @@ class FrontendApiClient:
         )
 
     def get_dashboard(self, business_id: str, limit: int = 1000) -> dict[str, Any]:
-        """Ambil seluruh data dashboard dari backend."""
+        """Ambil data dashboard dari backend."""
 
         safe_business_id = self._safe_path(business_id)
 
@@ -145,8 +167,6 @@ class FrontendApiClient:
     def record_transaction(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Catat transaksi melalui endpoint transaksi backend."""
 
-        clean_payload = dict(payload)
-
         return self._request_with_fallback(
             "POST",
             [
@@ -155,7 +175,7 @@ class FrontendApiClient:
                 "/api/v1/transactions/record",
                 "/api/v1/transactions/record-payload",
             ],
-            json_body=clean_payload,
+            json_body=dict(payload),
             fallback_statuses=(404, 405, 422),
         )
 
@@ -177,10 +197,7 @@ class FrontendApiClient:
             query={"limit": limit},
         )
 
-    def get_marketing_context(
-        self,
-        payload: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    def get_marketing_context(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Ambil konteks pemasaran."""
 
         return self._request_with_fallback(
@@ -364,13 +381,11 @@ class FrontendApiClient:
                 json_body=json_body,
                 query=query,
             )
-            attempts.append(
-                f"{method.upper()} {path} -> {response.get('_http_status', 200)}"
-            )
+            status = int(response.get("_http_status", 200))
+            attempts.append(f"{method.upper()} {path} -> {status}")
             response["_path_attempts"] = attempts.copy()
             last_response = response
 
-            status = response.get("_http_status")
             if status not in fallback_statuses:
                 return response
 

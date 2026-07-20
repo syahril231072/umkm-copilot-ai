@@ -15,6 +15,8 @@ from app.frontend.session import (
     build_business_preferences,
     ensure_frontend_session,
     get_api_client_from_session_state,
+    hydrate_business_from_backend,
+    start_create_new_business_flow,
 )
 from app.frontend.ui_components import (
     render_business_header,
@@ -36,6 +38,11 @@ def render_app() -> None:
     ensure_frontend_session(st.session_state)
 
     client = get_api_client_from_session_state(st.session_state)
+
+    if not bool(st.session_state.get("create_new_business_mode")):
+        with st.spinner("Memuat workspace bisnis..."):
+            hydrate_business_from_backend(st.session_state, client)
+
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
     preferences = build_business_preferences(st.session_state)
@@ -62,8 +69,8 @@ def render_app() -> None:
         eyebrow="Selamat datang",
         title="UMKM Copilot AI",
         description=(
-            "Isi profil bisnis, tambahkan produk, lalu catat transaksi pertama. "
-            "Setelah itu dashboard, asisten AI, dan pemasaran langsung aktif."
+            "Pilih business workspace, tambahkan produk, lalu catat transaksi. "
+            "Setiap business_id memiliki dashboard dan data operasional sendiri."
         ),
     )
 
@@ -75,29 +82,50 @@ def render_app() -> None:
 
     if state.dashboard_ready:
         st.success("Bisnis sudah siap digunakan.")
-        if st.button("Buka Dashboard", type="primary"):
-            switch_page(st, "pages/Dashboard.py")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Buka Dashboard", type="primary"):
+                switch_page(st, "pages/Dashboard.py")
+        with col_b:
+            if st.button("Buat Business Baru"):
+                start_create_new_business_flow(st.session_state)
+                switch_page(st, "pages/Business_Profile.py")
         return
 
     if state.next_step == "business_profile":
-        st.markdown("### Lengkapi profil bisnis")
-        st.caption("Profil bisnis akan disimpan ke backend dan menjadi acuan aplikasi.")
-        if st.button("Isi Profil Bisnis", type="primary"):
+        st.markdown("### Mulai dengan profil bisnis")
+        st.caption(
+            "Belum ada business profile yang ditemukan dari backend, "
+            "atau Anda sedang membuat business baru."
+        )
+        if st.button("Get Started", type="primary"):
             switch_page(st, "pages/Business_Profile.py")
         return
 
     if state.next_step == "products":
         st.markdown("### Tambahkan produk")
-        st.caption("Produk akan disimpan ke backend agar transaksi dapat dicatat.")
-        if st.button("Buka Produk", type="primary"):
-            switch_page(st, "pages/Products.py")
+        st.caption("Business sudah ditemukan. Tambahkan produk agar transaksi dapat dicatat.")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Buka Produk", type="primary"):
+                switch_page(st, "pages/Products.py")
+        with col_b:
+            if st.button("Buat Business Baru"):
+                start_create_new_business_flow(st.session_state)
+                switch_page(st, "pages/Business_Profile.py")
         return
 
     if state.next_step == "first_transaction":
         st.markdown("### Catat transaksi pertama")
         st.caption("Transaksi pertama akan disimpan ke backend untuk membuka fitur penuh.")
-        if st.button("Catat Transaksi Pertama", type="primary"):
-            switch_page(st, "pages/First_Transaction.py")
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("Catat Transaksi Pertama", type="primary"):
+                switch_page(st, "pages/First_Transaction.py")
+        with col_b:
+            if st.button("Buat Business Baru"):
+                start_create_new_business_flow(st.session_state)
+                switch_page(st, "pages/Business_Profile.py")
 
 
 def _get_streamlit() -> Any:

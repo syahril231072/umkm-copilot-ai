@@ -9,13 +9,18 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping
 
 from app.frontend.assets import load_frontend_assets
-from app.frontend.navigation import render_navigation
+from app.frontend.navigation import render_navigation, switch_page
 from app.frontend.onboarding import build_onboarding_state, is_valid_uuid
 from app.frontend.session import (
     DEFAULT_LIMIT,
     build_business_preferences,
     ensure_frontend_session,
     get_api_client_from_session_state,
+    get_business_profiles,
+    hydrate_business_from_backend,
+    refresh_business_profiles_from_backend,
+    set_business_from_response,
+    start_create_new_business_flow,
 )
 from app.frontend.ui_components import (
     error_message,
@@ -38,12 +43,16 @@ def render_page() -> None:
     ensure_frontend_session(st.session_state)
 
     client = get_api_client_from_session_state(st.session_state)
+
+    with st.spinner("Memuat workspace bisnis..."):
+        hydrate_business_from_backend(st.session_state, client)
+
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
     preferences = build_business_preferences(st.session_state)
     limit = int(st.session_state.get("dashboard_limit", DEFAULT_LIMIT))
 
-    dashboard_response = None
+    dashboard_response: dict[str, Any] | None = None
     if is_valid_uuid(business_id):
         with st.spinner("Memuat dashboard..."):
             dashboard_response = client.get_dashboard(business_id=business_id, limit=limit)
@@ -62,16 +71,18 @@ def render_page() -> None:
         description="Pantau penjualan, produk, persediaan, pelanggan, dan peluang bisnis.",
     )
 
+    _render_business_workspace_controls(st, client)
+
     if state.business_profile_ready:
         render_business_header(st, preferences)
 
-    if not state.dashboard_ready:
+    if not state.business_profile_ready:
         render_locked_page(
             st,
-            message="Dashboard akan tersedia setelah profil bisnis, produk, dan transaksi pertama siap.",
+            message="Belum ada business profile yang ditemukan dari backend.",
             state=state,
-            next_action_label="Lanjutkan Penyiapan",
-            next_page="app.py",
+            next_action_label="Get Started",
+            next_page="pages/Business_Profile.py",
         )
         return
 
@@ -79,7 +90,11 @@ def render_page() -> None:
         st.error(error_message(dashboard_response or {}))
         return
 
-    data = _ensure_mapping(dashboard_response.get("data"))
+    data = _extract_dashboard_data(dashboard_response)
+    if not data:
+        st.info("Dashboard belum memiliki data untuk ditampilkan.")
+        return
+
     _render_kpi_cards(st, _extract_list(data, "kpi_cards"))
     _render_alerts(st, _extract_list(data, "alerts"))
 
@@ -101,6 +116,81 @@ def render_page() -> None:
             _render_table(st, "Produk Berdasarkan Pendapatan", _extract_list(data, "top_products_by_revenue"))
         with col_b:
             _render_table(st, "Produk Berdasarkan Jumlah Terjual", _extract_list(data, "top_products_by_quantity"))
+
+
+def _render_business_workspace_controls(st: Any, client: Any) -> None:
+    """Render kontrol pilih/buat business."""
+
+    with st.expander("Kelola Business Workspace", expanded=False):
+        profiles = get_business_profiles(st.session_state)
+        if not profiles:
+            profiles = refresh_business_profiles_from_backend(st.session_state, client)
+
+        if profiles:
+            current_business_id = str(st.session_state.get("business_id", "")).strip()
+            options = {_business_option_label(profile): profile for profile in profiles}
+            labels = list(options.keys())
+
+            current_index = 0
+            for index, profile in enumerate(profiles):
+                if str(profile.get("business_id", "")).strip() == current_business_id:
+                    current_index = index
+                    break
+
+            selected_label = st.selectbox(
+                "Business aktif",
+                labels,
+                index=current_index if current_index < len(labels) else 0,
+            )
+            selected_profile = options[selected_label]
+            selected_business_id = str(selected_profile.get("business_id", "")).strip()
+
+            if selected_business_id != current_business_id:
+                set_business_from_response(st.session_state, selected_profile)
+                st.success("Business aktif berhasil diganti.")
+                st.rerun()
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            if st.button("Refresh Daftar Business"):
+                refresh_business_profiles_from_backend(st.session_state, client)
+                st.rerun()
+        with col_b:
+            if st.button("Tambah Produk Baru"):
+                switch_page(st, "pages/Products.py")
+        with col_c:
+            if st.button("Buat Business Baru", type="primary"):
+                start_create_new_business_flow(st.session_state)
+                switch_page(st, "pages/Business_Profile.py")
+
+
+def _business_option_label(profile: Mapping[str, Any]) -> str:
+    """Label pilihan business."""
+
+    business_name = str(profile.get("business_name") or "Tanpa Nama").strip()
+    business_type = str(profile.get("business_type") or "Jenis belum diisi").strip()
+    business_id = str(profile.get("business_id") or "").strip()
+
+    short_id = business_id[:8] if business_id else "-"
+
+    return f"{business_name} · {business_type} · {short_id}"
+
+
+def _extract_dashboard_data(response: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract dashboard payload from supported API response shapes."""
+
+    data = response.get("data")
+    if isinstance(data, Mapping):
+        nested_dashboard = data.get("dashboard")
+        if isinstance(nested_dashboard, Mapping):
+            return dict(nested_dashboard)
+        return dict(data)
+
+    dashboard = response.get("dashboard")
+    if isinstance(dashboard, Mapping):
+        return dict(dashboard)
+
+    return {}
 
 
 def _render_kpi_cards(st: Any, cards: list[dict[str, Any]]) -> None:
