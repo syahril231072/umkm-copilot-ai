@@ -1,0 +1,215 @@
+--- a/app/services/ai_generation_service.py
++++ b/app/services/ai_generation_service.py
+@@ -104,7 +104,7 @@
+         "The AI service is temporarily unavailable. Please try again shortly."
+     )
+ 
+-    LOCAL_PROVIDER_NAME = "local-business-intelligence"
++    LOCAL_PROVIDER_NAME = "local-context"
+     LOCAL_MODEL_NAME = "deterministic-bi-v1"
+ 
+     PRODUCT_CONTAINERS = (
+@@ -192,6 +192,7 @@
+         "product",
+         "nama_produk",
+         "title",
++        "key",
+     )
+     METRIC_QUANTITY_KEYS = (
+         "quantity_sold",
+--- a/pages/Dashboard.py
++++ b/pages/Dashboard.py
+@@ -16,7 +16,11 @@
+     build_business_preferences,
+     ensure_frontend_session,
+     get_api_client_from_session_state,
++    get_business_profiles,
+     hydrate_business_from_backend,
++    refresh_business_profiles_from_backend,
++    set_business_from_response,
++    start_create_new_business_flow,
+ )
+ from app.frontend.ui_components import (
+     error_message,
+@@ -77,6 +81,7 @@
+     )
+ 
+     if state.business_profile_ready:
++        _render_business_workspace_controls(st, client)
+         render_business_header(st, preferences)
+ 
+     if not state.dashboard_ready:
+@@ -98,6 +103,85 @@
+     _render_kpis(st, data)
+     _render_charts(st, data)
+     _render_dashboard_sections(st, data)
++
++
++
++def _render_business_workspace_controls(st: Any, client: Any) -> None:
++    """Render business workspace switcher and quick workspace actions."""
++
++    with st.expander("Kelola Business Workspace", expanded=False):
++        profiles = get_business_profiles(st.session_state)
++        if not profiles:
++            profiles = refresh_business_profiles_from_backend(st.session_state, client)
++
++        if profiles:
++            current_business_id = str(st.session_state.get("business_id", "")).strip()
++            options = {_business_option_label(profile): profile for profile in profiles}
++            labels = list(options.keys())
++
++            current_index = 0
++            for index, profile in enumerate(profiles):
++                if str(profile.get("business_id", "")).strip() == current_business_id:
++                    current_index = index
++                    break
++
++            selected_label = st.selectbox(
++                "Business aktif",
++                labels,
++                index=current_index if current_index < len(labels) else 0,
++                key="dashboard_business_switcher",
++            )
++            selected_profile = options[selected_label]
++            selected_business_id = str(selected_profile.get("business_id", "")).strip()
++
++            if selected_business_id != current_business_id:
++                set_business_from_response(st.session_state, selected_profile)
++                st.session_state["chat_messages"] = []
++                st.success("Business aktif berhasil diganti.")
++                st.rerun()
++        else:
++            st.info("Belum ada business profile yang tersimpan di backend.")
++
++        col_a, col_b, col_c = st.columns(3)
++        with col_a:
++            if st.button("Refresh Daftar Business", use_container_width=True):
++                refresh_business_profiles_from_backend(st.session_state, client)
++                st.rerun()
++        with col_b:
++            if st.button("Tambah Produk Baru", use_container_width=True):
++                switch_page(st, "pages/Products.py")
++        with col_c:
++            if st.button(
++                "Buat Business Baru",
++                type="primary",
++                use_container_width=True,
++            ):
++                start_create_new_business_flow(st.session_state)
++                switch_page(st, "pages/Business_Profile.py")
++
++
++def _business_option_label(profile: Mapping[str, Any]) -> str:
++    """Build business option label for dashboard workspace switcher."""
++
++    business_name = str(
++        profile.get("business_name")
++        or profile.get("name")
++        or profile.get("nama_usaha")
++        or "Tanpa Nama"
++    ).strip()
++    business_type = str(
++        profile.get("business_type")
++        or profile.get("category")
++        or profile.get("jenis_usaha")
++        or "Jenis usaha belum diisi"
++    ).strip()
++    business_id = str(profile.get("business_id") or profile.get("id") or "").strip()
++
++    if business_id:
++        return f"{business_name} · {business_type} · {business_id[:8]}"
++
++    return f"{business_name} · {business_type}"
++
+ 
+ 
+ def _render_kpis(st: Any, data: Mapping[str, Any]) -> None:
+--- a/tests/test_ai_generation_service_bi_compatibility.py
++++ b/tests/test_ai_generation_service_bi_compatibility.py
+@@ -0,0 +1,85 @@
++from __future__ import annotations
++
++from app.llm.prompt_builder import PromptBuilder
++from app.llm.response_formatter import ResponseFormatter
++from app.services.ai_generation_service import AIGenerationService
++
++
++class FailingProviderManager:
++    def generate_text(self, prompt: str, **kwargs):
++        return {
++            "success": False,
++            "provider": None,
++            "model": None,
++            "text": "",
++            "raw": None,
++            "error": {
++                "type": "AIServiceUnavailable",
++                "message": "The AI service is temporarily unavailable. Please try again shortly.",
++            },
++        }
++
++    def health_snapshot(self):
++        return []
++
++
++def _service() -> AIGenerationService:
++    return AIGenerationService(
++        prompt_builder=PromptBuilder(),
++        response_formatter=ResponseFormatter(),
++        provider_manager=FailingProviderManager(),
++    )
++
++
++def _context() -> dict[str, object]:
++    return {
++        "dashboard": {
++            "top_products_by_revenue": [
++                {"key": "Chicken Sandwich Promo", "value": 2214000},
++                {"key": "Croissant Special", "value": 1877500},
++            ],
++            "top_products_by_quantity": [
++                {"key": "Americano Large", "value": 64},
++                {"key": "Donut Special", "value": 58},
++            ],
++        },
++        "products": [
++            {"name": "Brownies Hot", "selling_price": 28000, "stock": 52, "sku": "DCF-0033"},
++            {"name": "Brownies Promo", "selling_price": 28000, "stock": 23, "sku": "DCF-0009"},
++        ],
++    }
++
++
++def test_local_provider_name_stays_backward_compatible() -> None:
++    response = _service().generate_conversation_response(
++        user_input="hi",
++        business_context={"business_name": "Coffee Shop"},
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    assert response["data"]["provider"] == "local-context"
++
++
++def test_quantity_ranking_supports_key_value_rows() -> None:
++    response = _service().generate_conversation_response(
++        user_input="yang paling laku",
++        business_context=_context(),
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    assert "Americano Large" in response["data"]["answer"]
++    assert "terjual 64 unit" in response["data"]["answer"]
++
++
++def test_revenue_ranking_supports_key_value_rows() -> None:
++    response = _service().generate_conversation_response(
++        user_input="produk dengan omzet tertinggi",
++        business_context=_context(),
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    assert "Chicken Sandwich Promo" in response["data"]["answer"]
++    assert "omzet Rp2.214.000" in response["data"]["answer"]

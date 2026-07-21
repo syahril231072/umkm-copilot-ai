@@ -39,6 +39,17 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+
+    # Canonical API v1 routes used by automated tests and the frontend client.
+    app.include_router(analytics.router, prefix="/api/v1")
+    app.include_router(business.router, prefix="/api/v1")
+    app.include_router(transactions.router, prefix="/api/v1")
+    app.include_router(marketing.router, prefix="/api/v1")
+    app.include_router(insights.router, prefix="/api/v1")
+    app.include_router(exports.router, prefix="/api/v1")
+    app.include_router(router_agent.router, prefix="/api/v1")
+
+    # Preserve existing unversioned routes for backward compatibility.
     app.include_router(analytics.router)
     app.include_router(business.router)
     app.include_router(onboarding.router)

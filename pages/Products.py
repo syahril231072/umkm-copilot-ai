@@ -183,7 +183,9 @@ def _render_existing_products(st: Any, client: Any, business_id: str) -> None:
         products = _refresh_products(st, client, business_id)
 
     if not products:
-        st.info("Belum ada produk pada business aktif. Tambahkan produk baru di form bawah.")
+        st.info(
+            "Belum ada produk pada business aktif. Tambahkan produk baru di form bawah."
+        )
         return
 
     table_rows = [_product_table_row(product) for product in products]
@@ -286,7 +288,9 @@ def _refresh_products(st: Any, client: Any, business_id: str) -> list[dict[str, 
     data = response.get("data", {})
     raw_products: Any
     if isinstance(data, Mapping):
-        raw_products = data.get("products") or data.get("items") or data.get("data") or []
+        raw_products = (
+            data.get("products") or data.get("items") or data.get("data") or []
+        )
     elif isinstance(data, list):
         raw_products = data
     else:
@@ -296,9 +300,7 @@ def _refresh_products(st: Any, client: Any, business_id: str) -> list[dict[str, 
         raw_products = [raw_products]
 
     products = [
-        dict(product)
-        for product in raw_products
-        if isinstance(product, Mapping)
+        dict(product) for product in raw_products if isinstance(product, Mapping)
     ]
     set_backend_products(st.session_state, products)
     return products

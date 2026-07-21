@@ -1,0 +1,167 @@
+Binary files a/app/services/__pycache__/ai_generation_service.cpython-313.pyc and b/app/services/__pycache__/ai_generation_service.cpython-313.pyc differ
+diff -ruN a/app/services/ai_generation_service.py b/app/services/ai_generation_service.py
+--- a/app/services/ai_generation_service.py	2026-07-21 06:35:27.075155127 +0000
++++ b/app/services/ai_generation_service.py	2026-07-21 06:35:27.075381090 +0000
+@@ -863,6 +863,17 @@
+             "yang laku",
+             "laku apa",
+             "laku yang mana",
++            "omzet",
++            "omset",
++            "revenue",
++            "pendapatan",
++            "penjualan tertinggi",
++            "nilai penjualan",
++            "hasil penjualan",
++            "omzet tertinggi",
++            "omset tertinggi",
++            "produk dengan omzet",
++            "produk dengan omset",
+         )
+ 
+         return any(marker in normalized_input for marker in markers)
+diff -ruN a/docs/AI_REVENUE_RANKING_INTENT_FIX.md b/docs/AI_REVENUE_RANKING_INTENT_FIX.md
+--- a/docs/AI_REVENUE_RANKING_INTENT_FIX.md	1970-01-01 00:00:00.000000000 +0000
++++ b/docs/AI_REVENUE_RANKING_INTENT_FIX.md	2026-07-21 06:35:27.075771509 +0000
+@@ -0,0 +1,44 @@
++# AI Revenue Ranking Intent Fix
++
++## Problem
++
++`pytest tests/test_ai_generation_service_product_catalog_ranking.py` failed on:
++
++`test_revenue_ranking_query_uses_revenue_ranking_without_provider`
++
++because the local intent detector did not classify:
++
++`produk dengan omzet tertinggi`
++
++as a ranking query.
++
++## Fix
++
++The ranking intent marker list now includes revenue/omzet terms:
++
++- omzet
++- omset
++- revenue
++- pendapatan
++- penjualan tertinggi
++- nilai penjualan
++- hasil penjualan
++- produk dengan omzet
++- produk dengan omset
++
++This lets the existing `_ranked_product_preference(...)` choose
++`top_products_by_revenue`.
++
++## Modified Files
++
++- `app/services/ai_generation_service.py`
++
++## Validation
++
++```bash
++python -m py_compile app/services/ai_generation_service.py
++pytest tests/test_ai_generation_service_product_catalog_ranking.py
++pytest tests/test_ai_conversation_workflow_product_context_ranking.py
++pytest tests/test_ai_conversation_workflow.py
++pytest tests/test_ai_generation_service_local_context_fallback.py
++```
+Binary files a/tests/__pycache__/test_ai_generation_service_product_catalog_ranking.cpython-313.pyc and b/tests/__pycache__/test_ai_generation_service_product_catalog_ranking.cpython-313.pyc differ
+diff -ruN a/tests/test_ai_generation_service_product_catalog_ranking.py b/tests/test_ai_generation_service_product_catalog_ranking.py
+--- a/tests/test_ai_generation_service_product_catalog_ranking.py	1970-01-01 00:00:00.000000000 +0000
++++ b/tests/test_ai_generation_service_product_catalog_ranking.py	2026-07-21 06:35:27.075594827 +0000
+@@ -0,0 +1,92 @@
++from __future__ import annotations
++
++from app.llm.prompt_builder import PromptBuilder
++from app.llm.response_formatter import ResponseFormatter
++from app.services.ai_generation_service import AIGenerationService
++
++
++class FailingProviderManager:
++    def generate_text(self, prompt: str, **kwargs):
++        return {
++            "success": False,
++            "provider": None,
++            "model": None,
++            "text": "",
++            "raw": None,
++            "error": {
++                "type": "AIServiceUnavailable",
++                "message": "The AI service is temporarily unavailable. Please try again shortly.",
++            },
++        }
++
++    def health_snapshot(self):
++        return []
++
++
++def _service() -> AIGenerationService:
++    return AIGenerationService(
++        prompt_builder=PromptBuilder(),
++        response_formatter=ResponseFormatter(),
++        provider_manager=FailingProviderManager(),
++    )
++
++
++def _context() -> dict[str, object]:
++    return {
++        "dashboard": {
++            "top_products_by_revenue": [
++                {"key": "Chicken Sandwich Promo", "value": 2214000},
++                {"key": "Croissant Special", "value": 1877500},
++            ],
++            "top_products_by_quantity": [
++                {"key": "Americano Large", "value": 64},
++                {"key": "Donut Special", "value": 58},
++            ],
++        },
++        "products": [
++            {"name": "Brownies Hot", "selling_price": 28000, "stock": 52, "sku": "DCF-0033"},
++            {"name": "Brownies Promo", "selling_price": 28000, "stock": 23, "sku": "DCF-0009"},
++        ],
++    }
++
++
++def test_product_catalog_query_uses_active_products_not_ranked_analytics() -> None:
++    response = _service().generate_conversation_response(
++        user_input="produk apa yang dijual?",
++        business_context=_context(),
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    answer = response["data"]["answer"]
++    assert "Brownies Hot" in answer
++    assert "Brownies Promo" in answer
++    assert "Chicken Sandwich Promo" not in answer
++    assert "Americano Large" not in answer
++
++
++def test_best_selling_query_uses_quantity_ranking_without_provider() -> None:
++    response = _service().generate_conversation_response(
++        user_input="yang paling laku",
++        business_context=_context(),
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    answer = response["data"]["answer"]
++    assert "Americano Large" in answer
++    assert "terjual 64 unit" in answer
++    assert "Chicken Sandwich Promo" not in answer
++
++
++def test_revenue_ranking_query_uses_revenue_ranking_without_provider() -> None:
++    response = _service().generate_conversation_response(
++        user_input="produk dengan omzet tertinggi",
++        business_context=_context(),
++        conversation_history=[],
++    )
++
++    assert response["success"] is True
++    answer = response["data"]["answer"]
++    assert "Chicken Sandwich Promo" in answer
++    assert "omzet Rp2.214.000" in answer

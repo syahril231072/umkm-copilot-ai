@@ -79,7 +79,9 @@ def render_page() -> None:
             st.rerun()
 
         if st.button("Periksa Koneksi Layanan"):
-            response = get_api_client_from_session_state(st.session_state).health_check()
+            response = get_api_client_from_session_state(
+                st.session_state
+            ).health_check()
             if response.get("success"):
                 st.success("Layanan terhubung.")
             else:

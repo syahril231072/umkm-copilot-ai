@@ -155,12 +155,7 @@ def extract_business_profiles_from_response(
 def normalize_business_profile(data: Mapping[str, Any]) -> dict[str, Any]:
     """Normalisasi business profile dari backend."""
 
-    business_id = (
-        data.get("business_id")
-        or data.get("id")
-        or data.get("uuid")
-        or ""
-    )
+    business_id = data.get("business_id") or data.get("id") or data.get("uuid") or ""
 
     return {
         "business_id": str(business_id).strip(),
@@ -337,11 +332,7 @@ def set_active_product_from_response(
     ensure_frontend_session(session_state)
 
     product_id = str(data.get("product_id") or data.get("id") or "").strip()
-    product_name = str(
-        data.get("name")
-        or data.get("product_name")
-        or ""
-    ).strip()
+    product_name = str(data.get("name") or data.get("product_name") or "").strip()
 
     session_state["active_product_id"] = product_id
     session_state["active_product_name"] = product_name

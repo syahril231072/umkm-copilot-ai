@@ -5,7 +5,7 @@ Dashboard
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Mapping
 
 from app.frontend.assets import load_frontend_assets
@@ -24,26 +24,35 @@ from app.frontend.session import (
 )
 from app.frontend.ui_components import (
     error_message,
+    find_items,
+    find_numeric,
+    format_currency,
+    format_number,
+    render_action_card,
     render_business_header,
-    render_hero,
+    render_empty_state,
     render_locked_page,
+    render_metric_card,
+    render_page_header,
+    render_section_header,
+    response_data,
+    safe_text,
+    to_decimal,
 )
 
 
 PAGE_NAME = "dashboard"
-CURRENCY_PREFIX = "Rp"
 
 
 def render_page() -> None:
-    """Render dashboard."""
+    """Render production SaaS dashboard."""
 
     st = _get_streamlit()
-    st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+    st.set_page_config(page_title="Go-UMKM AI · Dashboard", page_icon="📊", layout="wide")
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
 
     client = get_api_client_from_session_state(st.session_state)
-
     with st.spinner("Memuat workspace bisnis..."):
         hydrate_business_from_backend(st.session_state, client)
 
@@ -54,8 +63,7 @@ def render_page() -> None:
 
     dashboard_response: dict[str, Any] | None = None
     if is_valid_uuid(business_id):
-        with st.spinner("Memuat dashboard..."):
-            dashboard_response = client.get_dashboard(business_id=business_id, limit=limit)
+        dashboard_response = client.get_dashboard(business_id=business_id, limit=limit)
 
     state = build_onboarding_state(
         business_id=business_id,
@@ -64,25 +72,25 @@ def render_page() -> None:
     )
     render_navigation(st, state)
 
-    render_hero(
+    render_page_header(
         st,
         eyebrow="Dashboard",
-        title="Ringkasan Bisnis",
-        description="Pantau penjualan, produk, persediaan, pelanggan, dan peluang bisnis.",
+        title="Ringkasan Bisnis Hari Ini",
+        description="Pantau revenue, profit, transaksi, kesehatan bisnis, dan peluang pertumbuhan dalam satu workspace.",
+        icon="📊",
     )
 
-    _render_business_workspace_controls(st, client)
-
     if state.business_profile_ready:
+        _render_business_workspace_controls(st, client)
         render_business_header(st, preferences)
 
-    if not state.business_profile_ready:
+    if not state.dashboard_ready:
         render_locked_page(
             st,
-            message="Belum ada business profile yang ditemukan dari backend.",
+            message="Dashboard akan aktif setelah profil, produk, dan transaksi pertama tersedia.",
             state=state,
-            next_action_label="Get Started",
-            next_page="pages/Business_Profile.py",
+            next_action_label="Lanjutkan Setup",
+            next_page=_next_setup_page(state),
         )
         return
 
@@ -90,36 +98,16 @@ def render_page() -> None:
         st.error(error_message(dashboard_response or {}))
         return
 
-    data = _extract_dashboard_data(dashboard_response)
-    if not data:
-        st.info("Dashboard belum memiliki data untuk ditampilkan.")
-        return
+    data = response_data(dashboard_response)
 
-    _render_kpi_cards(st, _extract_list(data, "kpi_cards"))
-    _render_alerts(st, _extract_list(data, "alerts"))
+    _render_kpis(st, data)
+    _render_charts(st, data)
+    _render_dashboard_sections(st, data)
 
-    tabs = st.tabs(
-        ["Penjualan", "Persediaan", "Produk", "Pelanggan", "Produk Teratas"]
-    )
-
-    with tabs[0]:
-        _render_summary(st, "Ringkasan Penjualan", _ensure_mapping(data.get("sales_summary")))
-    with tabs[1]:
-        _render_summary(st, "Ringkasan Persediaan", _ensure_mapping(data.get("inventory_summary")))
-    with tabs[2]:
-        _render_summary(st, "Ringkasan Produk", _ensure_mapping(data.get("product_summary")))
-    with tabs[3]:
-        _render_summary(st, "Ringkasan Pelanggan", _ensure_mapping(data.get("customer_summary")))
-    with tabs[4]:
-        col_a, col_b = st.columns(2)
-        with col_a:
-            _render_table(st, "Produk Berdasarkan Pendapatan", _extract_list(data, "top_products_by_revenue"))
-        with col_b:
-            _render_table(st, "Produk Berdasarkan Jumlah Terjual", _extract_list(data, "top_products_by_quantity"))
 
 
 def _render_business_workspace_controls(st: Any, client: Any) -> None:
-    """Render kontrol pilih/buat business."""
+    """Render business workspace switcher and quick workspace actions."""
 
     with st.expander("Kelola Business Workspace", expanded=False):
         profiles = get_business_profiles(st.session_state)
@@ -141,190 +129,401 @@ def _render_business_workspace_controls(st: Any, client: Any) -> None:
                 "Business aktif",
                 labels,
                 index=current_index if current_index < len(labels) else 0,
+                key="dashboard_business_switcher",
             )
             selected_profile = options[selected_label]
             selected_business_id = str(selected_profile.get("business_id", "")).strip()
 
             if selected_business_id != current_business_id:
                 set_business_from_response(st.session_state, selected_profile)
+                st.session_state["chat_messages"] = []
                 st.success("Business aktif berhasil diganti.")
                 st.rerun()
+        else:
+            st.info("Belum ada business profile yang tersimpan di backend.")
 
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            if st.button("Refresh Daftar Business"):
+            if st.button("Refresh Daftar Business", use_container_width=True):
                 refresh_business_profiles_from_backend(st.session_state, client)
                 st.rerun()
         with col_b:
-            if st.button("Tambah Produk Baru"):
+            if st.button("Tambah Produk Baru", use_container_width=True):
                 switch_page(st, "pages/Products.py")
         with col_c:
-            if st.button("Buat Business Baru", type="primary"):
+            if st.button(
+                "Buat Business Baru",
+                type="primary",
+                use_container_width=True,
+            ):
                 start_create_new_business_flow(st.session_state)
                 switch_page(st, "pages/Business_Profile.py")
 
 
 def _business_option_label(profile: Mapping[str, Any]) -> str:
-    """Label pilihan business."""
+    """Build business option label for dashboard workspace switcher."""
 
-    business_name = str(profile.get("business_name") or "Tanpa Nama").strip()
-    business_type = str(profile.get("business_type") or "Jenis belum diisi").strip()
-    business_id = str(profile.get("business_id") or "").strip()
+    business_name = str(
+        profile.get("business_name")
+        or profile.get("name")
+        or profile.get("nama_usaha")
+        or "Tanpa Nama"
+    ).strip()
+    business_type = str(
+        profile.get("business_type")
+        or profile.get("category")
+        or profile.get("jenis_usaha")
+        or "Jenis usaha belum diisi"
+    ).strip()
+    business_id = str(profile.get("business_id") or profile.get("id") or "").strip()
 
-    short_id = business_id[:8] if business_id else "-"
+    if business_id:
+        return f"{business_name} · {business_type} · {business_id[:8]}"
 
-    return f"{business_name} · {business_type} · {short_id}"
-
-
-def _extract_dashboard_data(response: Mapping[str, Any]) -> dict[str, Any]:
-    """Extract dashboard payload from supported API response shapes."""
-
-    data = response.get("data")
-    if isinstance(data, Mapping):
-        nested_dashboard = data.get("dashboard")
-        if isinstance(nested_dashboard, Mapping):
-            return dict(nested_dashboard)
-        return dict(data)
-
-    dashboard = response.get("dashboard")
-    if isinstance(dashboard, Mapping):
-        return dict(dashboard)
-
-    return {}
+    return f"{business_name} · {business_type}"
 
 
-def _render_kpi_cards(st: Any, cards: list[dict[str, Any]]) -> None:
-    """Render KPI."""
 
-    if not cards:
-        st.info("KPI belum tersedia.")
-        return
+def _render_kpis(st: Any, data: Mapping[str, Any]) -> None:
+    """Render KPI cards."""
 
-    columns = st.columns(min(len(cards), 4))
-    for index, card in enumerate(cards):
-        with columns[index % len(columns)]:
-            label = str(card.get("label") or card.get("title") or card.get("key") or "Indikator")
-            value = _format_value(card.get("value"), label)
-            delta = card.get("delta") or card.get("change") or card.get("trend")
-            st.metric(label=label, value=value, delta=str(delta) if delta else None)
+    revenue = _revenue(data)
+    expenses = _expenses(data)
+    profit = _profit(data, revenue, expenses)
+    cash_flow = _cash_flow(data, profit, revenue)
+    transactions = find_numeric(data, ("total_transactions", "transaction_count", "completed_transactions"))
+
+    cols = st.columns(4)
+    with cols[0]:
+        render_metric_card(
+            st,
+            label="Revenue",
+            value=format_currency(revenue),
+            caption=f"{format_number(transactions)} completed transactions",
+            icon="💰",
+            tone="primary",
+        )
+    with cols[1]:
+        render_metric_card(
+            st,
+            label="Expenses",
+            value=format_currency(expenses),
+            caption="Estimated operating cost",
+            icon="📉",
+            tone="warning",
+        )
+    with cols[2]:
+        render_metric_card(
+            st,
+            label="Profit",
+            value=format_currency(profit),
+            caption="Revenue minus expenses",
+            icon="📈",
+            tone="success",
+        )
+    with cols[3]:
+        render_metric_card(
+            st,
+            label="Cash Flow",
+            value=format_currency(cash_flow),
+            caption="Available business signal",
+            icon="💳",
+            tone="indigo",
+        )
 
 
-def _render_alerts(st: Any, alerts: list[dict[str, Any]]) -> None:
-    """Render alerts."""
+def _render_charts(st: Any, data: Mapping[str, Any]) -> None:
+    """Render dashboard charts."""
 
-    if not alerts:
-        return
+    render_section_header(
+        st,
+        eyebrow="Analytics",
+        title="Sales, Revenue, and Product Performance",
+        description="Visual indicators are generated from available dashboard data without changing backend calls.",
+    )
 
-    st.subheader("Perlu Perhatian")
-    for alert in alerts:
-        message = str(alert.get("message") or alert.get("title") or alert)
-        severity = str(alert.get("severity") or alert.get("level") or "info").lower()
-        if severity in {"danger", "error", "critical", "high"}:
-            st.error(message)
-        elif severity in {"warning", "warn", "medium"}:
-            st.warning(message)
+    chart_a, chart_b = st.columns([0.56, 0.44])
+
+    with chart_a:
+        st.markdown('<div class="go-chart-card">', unsafe_allow_html=True)
+        st.subheader("Sales Trend")
+        sales_trend = find_items(
+            data,
+            ("sales_trend", "daily_sales", "revenue_trend", "transactions", "recent_transactions"),
+        )
+        chart_rows = _trend_rows(sales_trend)
+        if chart_rows:
+            st.line_chart(chart_rows, x="date", y=["revenue", "transactions"])
         else:
-            st.info(message)
+            render_empty_state(
+                st,
+                title="Belum ada tren penjualan",
+                description="Grafik akan muncul setelah data transaksi tersedia.",
+                icon="📈",
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
 
-
-def _render_summary(st: Any, title: str, data: dict[str, Any]) -> None:
-    """Render summary."""
-
-    st.subheader(title)
-    if not data:
-        st.info("Data belum tersedia.")
-        return
-
-    scalar_items = [(key, value) for key, value in data.items() if _is_scalar(value)]
-    if scalar_items:
-        columns = st.columns(min(len(scalar_items), 4))
-        for index, (key, value) in enumerate(scalar_items):
-            with columns[index % len(columns)]:
-                st.metric(_humanize(key), _format_value(value, key))
-
-    nested_rows = []
-    for key, value in data.items():
-        if isinstance(value, Mapping):
-            row = {"Bagian": _humanize(str(key))}
-            row.update(dict(value))
-            nested_rows.append(row)
-        elif isinstance(value, list):
-            for item in value:
-                if isinstance(item, Mapping):
-                    row = {"Bagian": _humanize(str(key))}
-                    row.update(dict(item))
-                    nested_rows.append(row)
-
-    if nested_rows:
-        st.dataframe(nested_rows, use_container_width=True, hide_index=True)
-
-
-def _render_table(st: Any, title: str, rows: list[dict[str, Any]]) -> None:
-    """Render table."""
-
-    st.subheader(title)
-    if not rows:
-        st.info("Data belum tersedia.")
-        return
-
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-
-
-def _extract_list(data: Mapping[str, Any], key: str) -> list[dict[str, Any]]:
-    """Extract list."""
-
-    value = data.get(key)
-    if not isinstance(value, list):
-        return []
-    return [dict(item) if isinstance(item, Mapping) else {"Nilai": item} for item in value]
-
-
-def _ensure_mapping(value: Any) -> dict[str, Any]:
-    """Ensure mapping."""
-
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _is_scalar(value: Any) -> bool:
-    """Check scalar."""
-
-    return value is None or isinstance(value, (str, int, float, bool, Decimal))
-
-
-def _format_value(value: Any, key: str) -> str:
-    """Format value."""
-
-    if value is None:
-        return "-"
-
-    number = _to_decimal(value)
-    if number is not None:
-        if number == number.to_integral():
-            formatted = f"{int(number):,}".replace(",", ".")
+    with chart_b:
+        st.markdown('<div class="go-chart-card">', unsafe_allow_html=True)
+        st.subheader("Product Performance")
+        products = find_items(
+            data,
+            ("top_products_by_revenue", "top_products_by_quantity", "top_products", "products"),
+        )
+        performance_rows = _product_performance_rows(products)
+        if performance_rows:
+            st.bar_chart(performance_rows, x="product", y="value")
         else:
-            formatted = f"{float(number):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
-        if any(word in key.lower() for word in ["revenue", "sales", "price", "cost", "amount", "value"]):
-            return f"{CURRENCY_PREFIX}{formatted}"
-        return formatted
-
-    return str(value)
-
-
-def _to_decimal(value: Any) -> Decimal | None:
-    """Convert decimal."""
-
-    if isinstance(value, bool):
-        return None
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError, TypeError):
-        return None
+            render_empty_state(
+                st,
+                title="Belum ada performa produk",
+                description="Produk teratas akan tampil setelah transaksi tercatat.",
+                icon="📦",
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
-def _humanize(key: str) -> str:
-    """Humanize key."""
+def _render_dashboard_sections(st: Any, data: Mapping[str, Any]) -> None:
+    """Render lower dashboard sections."""
 
-    return key.replace("_", " ").replace("-", " ").title()
+    left, right = st.columns([0.62, 0.38])
+
+    with left:
+        render_section_header(
+            st,
+            eyebrow="Operations",
+            title="Recent Transactions",
+            description="Ringkasan transaksi terbaru untuk pemantauan harian.",
+        )
+        transactions = find_items(data, ("recent_transactions", "transactions", "latest_transactions"))
+        if transactions:
+            st.dataframe(
+                _display_rows(transactions[:10]),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            render_empty_state(
+                st,
+                title="Belum ada transaksi terbaru",
+                description="Catat penjualan untuk mulai membangun riwayat transaksi.",
+                icon="🧾",
+            )
+
+    with right:
+        render_section_header(
+            st,
+            eyebrow="AI Workspace",
+            title="Business Health",
+            description="Sinyal cepat untuk keputusan bisnis berikutnya.",
+        )
+        health_items = _business_health_items(data)
+        for item in health_items:
+            render_action_card(
+                st,
+                title=item["title"],
+                description=item["description"],
+                icon=item["icon"],
+                badge=item["badge"],
+            )
+
+    render_section_header(
+        st,
+        eyebrow="Quick Actions",
+        title="Move faster with Go-UMKM AI",
+        description="Akses cepat ke aktivitas operasional utama.",
+    )
+    col_a, col_b, col_c, col_d = st.columns(4)
+    with col_a:
+        render_action_card(st, title="Record Sale", description="Catat transaksi penjualan baru.", icon="🧾")
+        if st.button("Open Transactions", use_container_width=True):
+            switch_page(st, "pages/Transactions.py")
+    with col_b:
+        render_action_card(st, title="Ask AI", description="Tanyakan kondisi bisnis dan rekomendasi.", icon="🤖")
+        if st.button("Open AI Assistant", use_container_width=True):
+            switch_page(st, "pages/AI_Assistant.py")
+    with col_c:
+        render_action_card(st, title="Marketing", description="Bangun campaign dan caption promosi.", icon="📣")
+        if st.button("Open Marketing", use_container_width=True):
+            switch_page(st, "pages/Marketing.py")
+    with col_d:
+        render_action_card(st, title="Export Reports", description="Unduh laporan bisnis untuk analisis.", icon="⬇️")
+        if st.button("Open Export", use_container_width=True):
+            switch_page(st, "pages/Export.py")
+
+
+def _revenue(data: Mapping[str, Any]) -> Decimal:
+    """Get revenue value."""
+
+    return find_numeric(
+        data,
+        (
+            "total_revenue",
+            "revenue",
+            "total_sales",
+            "sales_revenue",
+            "gross_revenue",
+            "income",
+        ),
+    )
+
+
+def _expenses(data: Mapping[str, Any]) -> Decimal:
+    """Get expenses value."""
+
+    return find_numeric(
+        data,
+        (
+            "total_expenses",
+            "expenses",
+            "cost",
+            "total_cost",
+            "cogs",
+            "operating_expenses",
+        ),
+    )
+
+
+def _profit(data: Mapping[str, Any], revenue: Decimal, expenses: Decimal) -> Decimal:
+    """Get profit value."""
+
+    explicit = find_numeric(data, ("profit", "net_profit", "gross_profit"), default=Decimal("-1"))
+    if explicit >= 0:
+        return explicit
+
+    return revenue - expenses
+
+
+def _cash_flow(data: Mapping[str, Any], profit: Decimal, revenue: Decimal) -> Decimal:
+    """Get cash flow value."""
+
+    explicit = find_numeric(data, ("cash_flow", "net_cash_flow", "available_cash"), default=Decimal("-1"))
+    if explicit >= 0:
+        return explicit
+
+    if profit != 0:
+        return profit
+
+    return revenue
+
+
+def _trend_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize trend rows."""
+
+    rows: list[dict[str, Any]] = []
+    for index, record in enumerate(records[:30], start=1):
+        date = safe_text(
+            record.get("date")
+            or record.get("transaction_date")
+            or record.get("day")
+            or f"Data {index}"
+        )
+        rows.append(
+            {
+                "date": date,
+                "revenue": float(
+                    to_decimal(
+                        record.get("revenue")
+                        or record.get("total_revenue")
+                        or record.get("amount")
+                        or record.get("total")
+                        or 0
+                    )
+                    or Decimal("0")
+                ),
+                "transactions": float(
+                    to_decimal(
+                        record.get("transactions")
+                        or record.get("transaction_count")
+                        or record.get("quantity")
+                        or 0
+                    )
+                    or Decimal("0")
+                ),
+            }
+        )
+    return rows
+
+
+def _product_performance_rows(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Normalize product performance rows."""
+
+    rows: list[dict[str, Any]] = []
+    for index, product in enumerate(products[:10], start=1):
+        name = safe_text(
+            product.get("name")
+            or product.get("product_name")
+            or product.get("product")
+            or f"Product {index}"
+        )
+        value = to_decimal(
+            product.get("revenue")
+            or product.get("total_revenue")
+            or product.get("quantity")
+            or product.get("total_quantity")
+            or product.get("value")
+            or 0
+        )
+        rows.append({"product": name, "value": float(value or Decimal("0"))})
+    return rows
+
+
+def _business_health_items(data: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Build health cards."""
+
+    low_stock = find_numeric(data, ("low_stock_count", "low_stock_items", "low_stock"))
+    active_products = find_numeric(data, ("active_products", "active_product_count", "total_products"))
+    customers = find_numeric(data, ("unique_customers", "estimated_unique_customers", "customers"))
+
+    return [
+        {
+            "title": "AI Insights",
+            "description": "Gunakan Asisten AI untuk membaca pola transaksi dan rekomendasi tindakan.",
+            "icon": "🤖",
+            "badge": "Smart",
+        },
+        {
+            "title": "Inventory Signal",
+            "description": f"{format_number(low_stock)} item berpotensi low stock dari {format_number(active_products)} produk aktif.",
+            "icon": "📦",
+            "badge": "Stock",
+        },
+        {
+            "title": "Customer Signal",
+            "description": f"Estimasi {format_number(customers)} pelanggan unik terdeteksi dari data transaksi.",
+            "icon": "👥",
+            "badge": "Growth",
+        },
+    ]
+
+
+def _display_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build display rows."""
+
+    display_rows: list[dict[str, Any]] = []
+    for record in records:
+        display_rows.append(
+            {
+                "Date": safe_text(record.get("date") or record.get("transaction_date") or record.get("created_at"), "-"),
+                "Product": safe_text(record.get("product_name") or record.get("product") or record.get("name"), "-"),
+                "Quantity": safe_text(record.get("quantity") or record.get("qty"), "-"),
+                "Amount": format_currency(record.get("amount") or record.get("total") or record.get("revenue") or 0),
+                "Status": safe_text(record.get("status"), "completed").title(),
+            }
+        )
+    return display_rows
+
+
+def _next_setup_page(state: Any) -> str:
+    """Return next setup page."""
+
+    if state.next_step == "products":
+        return "pages/Products.py"
+
+    if state.next_step == "first_transaction":
+        return "pages/First_Transaction.py"
+
+    return "pages/Business_Profile.py"
 
 
 def _get_streamlit() -> Any:

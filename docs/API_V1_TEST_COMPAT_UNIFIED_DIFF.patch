@@ -1,0 +1,259 @@
+--- a/app/api/main.py
++++ b/app/api/main.py
+@@ -39,6 +39,17 @@
+     )
+ 
+     app.include_router(health.router)
++
++    # Canonical API v1 routes used by automated tests and the frontend client.
++    app.include_router(analytics.router, prefix="/api/v1")
++    app.include_router(business.router, prefix="/api/v1")
++    app.include_router(transactions.router, prefix="/api/v1")
++    app.include_router(marketing.router, prefix="/api/v1")
++    app.include_router(insights.router, prefix="/api/v1")
++    app.include_router(exports.router, prefix="/api/v1")
++    app.include_router(router_agent.router, prefix="/api/v1")
++
++    # Preserve existing unversioned routes for backward compatibility.
+     app.include_router(analytics.router)
+     app.include_router(business.router)
+     app.include_router(onboarding.router)
+--- a/app/frontend/api_client.py
++++ b/app/frontend/api_client.py
+@@ -53,8 +53,8 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                "/api/v1/business/profiles",
+                 "/business/profiles",
+-                "/api/v1/business/profiles",
+             ],
+             query={"limit": limit},
+         )
+@@ -65,8 +65,8 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                "/api/v1/business/active-profile",
+                 "/business/active-profile",
+-                "/api/v1/business/active-profile",
+             ],
+         )
+ 
+@@ -116,8 +116,62 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                f"/api/v1/analytics/dashboard/{safe_business_id}",
+                 f"/analytics/dashboard/{safe_business_id}",
+-                f"/api/v1/analytics/dashboard/{safe_business_id}",
++            ],
++            query={"limit": limit},
++        )
++
++    def get_sales_summary(
++        self,
++        business_id: str,
++        limit: int = 1000,
++    ) -> dict[str, Any]:
++        """Ambil ringkasan penjualan analytics."""
++
++        safe_business_id = self._safe_path(business_id)
++
++        return self._request_with_fallback(
++            "GET",
++            [
++                f"/api/v1/analytics/sales/{safe_business_id}",
++                f"/analytics/sales/{safe_business_id}",
++            ],
++            query={"limit": limit},
++        )
++
++    def get_inventory_summary(
++        self,
++        business_id: str,
++        limit: int = 1000,
++    ) -> dict[str, Any]:
++        """Ambil ringkasan inventory analytics."""
++
++        safe_business_id = self._safe_path(business_id)
++
++        return self._request_with_fallback(
++            "GET",
++            [
++                f"/api/v1/analytics/inventory/{safe_business_id}",
++                f"/analytics/inventory/{safe_business_id}",
++            ],
++            query={"limit": limit},
++        )
++
++    def get_product_summary(
++        self,
++        business_id: str,
++        limit: int = 1000,
++    ) -> dict[str, Any]:
++        """Ambil ringkasan produk analytics."""
++
++        safe_business_id = self._safe_path(business_id)
++
++        return self._request_with_fallback(
++            "GET",
++            [
++                f"/api/v1/analytics/products/{safe_business_id}",
++                f"/analytics/products/{safe_business_id}",
+             ],
+             query={"limit": limit},
+         )
+@@ -133,8 +187,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/business/overview",
+                 "/business/overview",
+-                "/api/v1/business/overview",
+             ],
+             json_body={
+                 "business_id": business_id,
+@@ -154,8 +208,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/business/health-check",
+                 "/business/health-check",
+-                "/api/v1/business/health-check",
+             ],
+             json_body={
+                 "business_id": business_id,
+@@ -170,10 +224,10 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/transactions/record",
++                "/api/v1/transactions/record-payload",
+                 "/transactions/record",
+                 "/transactions/record-payload",
+-                "/api/v1/transactions/record",
+-                "/api/v1/transactions/record-payload",
+             ],
+             json_body=dict(payload),
+             fallback_statuses=(404, 405, 422),
+@@ -191,8 +245,8 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                f"/api/v1/transactions/summary/{safe_business_id}",
+                 f"/transactions/summary/{safe_business_id}",
+-                f"/api/v1/transactions/summary/{safe_business_id}",
+             ],
+             query={"limit": limit},
+         )
+@@ -203,8 +257,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/marketing/context",
+                 "/marketing/context",
+-                "/api/v1/marketing/context",
+             ],
+             json_body=dict(payload),
+         )
+@@ -218,8 +272,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/marketing/records",
+                 "/marketing/records",
+-                "/api/v1/marketing/records",
+             ],
+             json_body=dict(payload),
+         )
+@@ -237,8 +291,8 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                f"/api/v1/marketing/history/{safe_business_id}",
+                 f"/marketing/history/{safe_business_id}",
+-                f"/api/v1/marketing/history/{safe_business_id}",
+             ],
+             query={"keyword": keyword, "limit": limit},
+         )
+@@ -249,8 +303,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/insights/context",
+                 "/insights/context",
+-                "/api/v1/insights/context",
+             ],
+             json_body=dict(payload),
+         )
+@@ -261,8 +315,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/insights/records",
+                 "/insights/records",
+-                "/api/v1/insights/records",
+             ],
+             json_body=dict(payload),
+         )
+@@ -281,8 +335,8 @@
+         return self._request_with_fallback(
+             "GET",
+             [
++                f"/api/v1/insights/review/{safe_business_id}",
+                 f"/insights/review/{safe_business_id}",
+-                f"/api/v1/insights/review/{safe_business_id}",
+             ],
+             query={
+                 "keyword": keyword,
+@@ -297,8 +351,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/exports/dashboard",
+                 "/exports/dashboard",
+-                "/api/v1/exports/dashboard",
+             ],
+             json_body=dict(payload),
+         )
+@@ -309,8 +363,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/exports/sales-summary",
+                 "/exports/sales-summary",
+-                "/api/v1/exports/sales-summary",
+             ],
+             json_body=dict(payload),
+         )
+@@ -321,8 +375,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/exports/inventory-summary",
+                 "/exports/inventory-summary",
+-                "/api/v1/exports/inventory-summary",
+             ],
+             json_body=dict(payload),
+         )
+@@ -333,8 +387,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/exports/structured",
+                 "/exports/structured",
+-                "/api/v1/exports/structured",
+             ],
+             json_body=dict(payload),
+         )
+@@ -350,8 +404,8 @@
+         return self._request_with_fallback(
+             "POST",
+             [
++                "/api/v1/router/route",
+                 "/router/route",
+-                "/api/v1/router/route",
+             ],
+             json_body={
+                 "user_input": user_input,

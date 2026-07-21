@@ -4,18 +4,21 @@ AI Generation Service
 
 Service layer adapter for provider-neutral AI generation.
 
-This service owns prompt construction and response formatting for conversational
-AI use cases. It does not access repositories, databases, FastAPI, or Streamlit.
-Provider access is delegated to ProviderManager through the AI Provider layer.
+This service owns prompt construction, response formatting, and deterministic
+local business intelligence answers for simple data-driven questions. It does
+not access repositories, databases, FastAPI, or Streamlit. Provider access is
+delegated to ProviderManager through the AI Provider layer.
 
-The service also contains a small deterministic local-context fallback so the
-application can still answer simple business-context questions during provider
-outages, demonstrations, competitions, and quota incidents.
+The local business intelligence layer keeps the application useful during LLM
+quota incidents, demonstrations, competitions, and provider outages.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from typing import Any
 
 from app.llm.gemini_client import GeminiClient
@@ -28,18 +31,62 @@ from app.llm.response_formatter import ResponseFormatter
 from app.utils.logger import logger
 
 
+class LocalBIIntent(StrEnum):
+    """Supported deterministic business intelligence intents."""
+
+    PRODUCT_CATALOG = "ProductCatalogIntent"
+    BEST_SELLING_PRODUCT = "BestSellingProductIntent"
+    HIGH_REVENUE_PRODUCT = "HighRevenueProductIntent"
+    SLOW_MOVING_PRODUCT = "SlowMovingProductIntent"
+    ZERO_SALES_PRODUCT = "ZeroSalesProductIntent"
+    OUT_OF_STOCK = "OutOfStockIntent"
+    LOW_STOCK = "LowStockIntent"
+    OVERSTOCK = "OverstockIntent"
+    HIGH_MARGIN_PRODUCT = "HighMarginProductIntent"
+    LOW_MARGIN_PRODUCT = "LowMarginProductIntent"
+    BUSINESS_HEALTH = "BusinessHealthIntent"
+    ALERT_SUMMARY = "AlertSummaryIntent"
+    FOLLOW_UP = "FollowUpIntent"
+    GREETING = "GreetingIntent"
+    BUSINESS_IDENTITY = "BusinessIdentityIntent"
+
+
+@dataclass(frozen=True)
+class ProductInfo:
+    """Normalized product information used by local BI answers."""
+
+    name: str
+    price: Decimal | None = None
+    cost_price: Decimal | None = None
+    stock: Decimal | None = None
+    minimum_stock: Decimal | None = None
+    sku: str = ""
+    category: str = ""
+    product_id: str = ""
+
+
+@dataclass(frozen=True)
+class ProductMetric:
+    """Normalized product performance metric."""
+
+    name: str
+    quantity_sold: Decimal | None = None
+    revenue: Decimal | None = None
+    value: Decimal | None = None
+
+
 class AIGenerationService:
     """
-    Generate natural-language AI responses using the configured LLM providers.
+    Generate natural-language AI responses using configured LLM providers.
 
-    Public interface is intentionally backward-compatible. Existing callers may
-    continue calling generate_conversation_response(...), generate_text(...), or
+    Public interface remains backward-compatible. Existing callers may continue
+    calling generate_conversation_response(...), generate_text(...), or
     await generate(...).
     """
 
     DEFAULT_SYSTEM_INSTRUCTION = """
-You are UMKM Copilot AI, a practical business assistant for micro, small, and
-medium enterprises.
+You are Go-UMKM AI, a practical business assistant for Indonesian micro, small,
+and medium enterprises.
 
 Answer the user's question directly and naturally.
 
@@ -58,58 +105,116 @@ Rules:
     )
 
     LOCAL_PROVIDER_NAME = "local-context"
-    LOCAL_MODEL_NAME = "deterministic-fallback"
+    LOCAL_MODEL_NAME = "deterministic-bi-v1"
 
-    PRODUCT_NAME_KEYS = {
-        "name",
-        "product_name",
-        "product",
-        "produk",
-        "nama_produk",
-        "nama",
-    }
-    PRODUCT_CONTAINER_KEYS = {
+    PRODUCT_CONTAINERS = (
         "products",
         "active_products",
-        "active_product_items",
-        "product_items",
-        "product_list",
         "product_catalog",
         "catalog_products",
-    }
-    RANKED_PRODUCT_CONTAINER_KEYS = {
-        "top_products",
-        "top_products_by_revenue",
+        "product_list",
+        "items",
+    )
+    SALES_METRIC_CONTAINERS = (
+        "product_performance",
+        "sales_by_product",
+        "product_sales",
+        "products_performance",
+        "sales_per_product",
         "top_products_by_quantity",
         "best_selling_products",
-    }
-    QUANTITY_RANKED_PRODUCT_CONTAINER_KEYS = {
-        "top_products_by_quantity",
-        "best_selling_products",
-    }
-    REVENUE_RANKED_PRODUCT_CONTAINER_KEYS = {
-        "top_products_by_revenue",
+        "top_selling_products",
         "top_products",
-    }
-    PRODUCT_PRICE_KEYS = {
-        "price",
+    )
+    REVENUE_METRIC_CONTAINERS = (
+        "top_products_by_revenue",
+        "revenue_by_product",
+        "product_revenue",
+        "products_by_revenue",
+        "product_performance",
+        "sales_by_product",
+    )
+    ALERT_CONTAINERS = (
+        "alerts",
+        "warnings",
+        "business_alerts",
+        "inventory_alerts",
+        "health_alerts",
+    )
+
+    PRODUCT_NAME_KEYS = (
+        "product_name",
+        "name",
+        "product",
+        "nama_produk",
+        "nama",
+        "title",
+    )
+    PRODUCT_PRICE_KEYS = (
         "selling_price",
+        "price",
         "sale_price",
         "unit_price",
-        "harga",
         "harga_jual",
+        "harga",
         "price_idr",
-    }
-    PRODUCT_STOCK_KEYS = {
+    )
+    PRODUCT_COST_KEYS = (
+        "cost_price",
+        "purchase_price",
+        "buying_price",
+        "modal",
+        "harga_modal",
+        "cost",
+    )
+    PRODUCT_STOCK_KEYS = (
         "stock",
         "current_stock",
         "stock_quantity",
-        "quantity",
-        "qty",
+        "quantity_in_stock",
         "stok",
         "available_stock",
-    }
-    PRODUCT_SKU_KEYS = {"sku", "barcode", "code", "kode"}
+    )
+    PRODUCT_MIN_STOCK_KEYS = (
+        "minimum_stock",
+        "min_stock",
+        "reorder_point",
+        "safety_stock",
+        "stok_minimum",
+    )
+    PRODUCT_SKU_KEYS = ("sku", "barcode", "code", "kode")
+    PRODUCT_ID_KEYS = ("product_id", "id")
+    PRODUCT_CATEGORY_KEYS = ("category", "product_category", "kategori")
+
+    METRIC_NAME_KEYS = (
+        "product_name",
+        "name",
+        "product",
+        "nama_produk",
+        "title",
+        "key",
+    )
+    METRIC_QUANTITY_KEYS = (
+        "quantity_sold",
+        "total_quantity",
+        "qty_sold",
+        "sold",
+        "units_sold",
+        "quantity",
+        "qty",
+        "total_sold",
+    )
+    METRIC_REVENUE_KEYS = (
+        "revenue",
+        "total_revenue",
+        "sales_revenue",
+        "omzet",
+        "omset",
+        "total_sales",
+        "amount",
+        "value",
+        "nilai",
+    )
 
     def __init__(
         self,
@@ -138,24 +243,20 @@ Rules:
         """
         Generate a conversational answer.
 
-        Args:
-            user_input: User prompt.
-            business_context: Optional structured business context.
-            conversation_history: Optional conversation history.
-            temperature: LLM temperature.
-            max_output_tokens: LLM output limit.
-
-        Returns:
-            Structured service response containing answer text and LLM metadata.
+        Deterministic local BI intents are answered before calling external LLMs.
+        This keeps data-driven business questions operational during provider
+        quota/rate-limit incidents.
         """
 
         try:
             self._validate_user_input(user_input)
             resolved_context = dict(business_context or {})
 
-            local_answer = self._try_local_context_answer(
+            local_answer = self._try_local_business_intelligence_answer(
                 user_input=user_input,
                 business_context=resolved_context,
+                conversation_history=conversation_history or [],
+                allow_no_data_answer=True,
             )
             if local_answer is not None:
                 return self._success_response(local_answer)
@@ -178,13 +279,15 @@ Rules:
             )
 
             if not formatted_response.get("success"):
-                local_answer = self._try_local_context_answer(
+                local_answer = self._try_local_business_intelligence_answer(
                     user_input=user_input,
                     business_context=resolved_context,
+                    conversation_history=conversation_history or [],
                     allow_no_data_answer=True,
                 )
                 if local_answer is not None:
                     return self._success_response(local_answer)
+
                 return self._friendly_error_response()
 
             data = formatted_response.get("data")
@@ -193,13 +296,6 @@ Rules:
 
             answer = str(data.get("text") or "").strip()
             if not answer:
-                local_answer = self._try_local_context_answer(
-                    user_input=user_input,
-                    business_context=resolved_context,
-                    allow_no_data_answer=True,
-                )
-                if local_answer is not None:
-                    return self._success_response(local_answer)
                 return self._friendly_error_response()
 
             return {
@@ -215,13 +311,15 @@ Rules:
 
         except Exception as exc:
             self._logger.exception("AI generation failed.")
-            local_answer = self._try_local_context_answer(
+            local_answer = self._try_local_business_intelligence_answer(
                 user_input=user_input,
                 business_context=business_context or {},
+                conversation_history=conversation_history or [],
                 allow_no_data_answer=True,
             )
             if local_answer is not None:
                 return self._success_response(local_answer)
+
             return self._friendly_error_response(error_type=exc.__class__.__name__)
 
     def generate_text(
@@ -234,7 +332,7 @@ Rules:
         """
         Generate raw text from a prompt.
 
-        This method preserves the old GeminiClient-compatible response shape:
+        This method preserves the GeminiClient-compatible response shape:
         success/provider/model/text/raw/error.
         """
 
@@ -260,12 +358,7 @@ Rules:
         temperature: float | None = None,
         max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
-        """
-        Async-compatible generation method.
-
-        Existing async callers using await ai_generation_service.generate(...)
-        can continue working without modification.
-        """
+        """Async-compatible generation method."""
 
         return self.generate_text(
             prompt,
@@ -286,55 +379,287 @@ Rules:
 
         return self._provider_manager
 
-    def _try_local_context_answer(
+    def _try_local_business_intelligence_answer(
         self,
         *,
         user_input: str,
         business_context: Mapping[str, Any],
-        allow_no_data_answer: bool = True,
+        conversation_history: list[Mapping[str, Any]],
+        allow_no_data_answer: bool,
     ) -> str | None:
-        """Build deterministic answer from local context when possible."""
+        """Answer supported BI intents from local context."""
 
         normalized_input = self._normalize_text(user_input)
+        intent = self._classify_intent(normalized_input)
 
-        if self._is_greeting(normalized_input):
+        if intent is None:
+            return None
+
+        if intent == LocalBIIntent.GREETING:
             return self._build_greeting_answer(business_context)
 
-        if self._is_best_selling_product_query(normalized_input):
-            return self._build_best_selling_product_answer(
-                user_input=normalized_input,
-                business_context=business_context,
-                allow_no_data_answer=allow_no_data_answer,
-            )
-
-        if self._is_product_query(normalized_input):
-            return self._build_product_answer(
-                business_context,
-                allow_no_data_answer=allow_no_data_answer,
-            )
-
-        if self._is_business_identity_query(normalized_input):
+        if intent == LocalBIIntent.BUSINESS_IDENTITY:
             return self._build_business_identity_answer(
                 business_context,
                 allow_no_data_answer=allow_no_data_answer,
             )
 
+        if intent == LocalBIIntent.PRODUCT_CATALOG:
+            return self._build_product_catalog_answer(
+                business_context,
+                allow_no_data_answer=allow_no_data_answer,
+            )
+
+        if intent == LocalBIIntent.BEST_SELLING_PRODUCT:
+            return self._build_best_selling_answer(business_context)
+
+        if intent == LocalBIIntent.HIGH_REVENUE_PRODUCT:
+            return self._build_high_revenue_answer(business_context)
+
+        if intent == LocalBIIntent.SLOW_MOVING_PRODUCT:
+            return self._build_slow_moving_answer(business_context)
+
+        if intent == LocalBIIntent.ZERO_SALES_PRODUCT:
+            return self._build_zero_sales_answer(business_context)
+
+        if intent == LocalBIIntent.OUT_OF_STOCK:
+            return self._build_out_of_stock_answer(business_context)
+
+        if intent == LocalBIIntent.LOW_STOCK:
+            return self._build_low_stock_answer(business_context)
+
+        if intent == LocalBIIntent.OVERSTOCK:
+            return self._build_overstock_answer(business_context)
+
+        if intent == LocalBIIntent.HIGH_MARGIN_PRODUCT:
+            return self._build_margin_answer(business_context, highest=True)
+
+        if intent == LocalBIIntent.LOW_MARGIN_PRODUCT:
+            return self._build_margin_answer(business_context, highest=False)
+
+        if intent == LocalBIIntent.BUSINESS_HEALTH:
+            return self._build_business_health_answer(business_context)
+
+        if intent == LocalBIIntent.ALERT_SUMMARY:
+            return self._build_alert_summary_answer(business_context)
+
+        if intent == LocalBIIntent.FOLLOW_UP:
+            return self._build_follow_up_answer(conversation_history)
+
+        return None
+
+    def _classify_intent(self, normalized_input: str) -> LocalBIIntent | None:
+        """Classify supported local BI intent."""
+
+        if self._is_greeting(normalized_input):
+            return LocalBIIntent.GREETING
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "stok habis",
+                "stock out",
+                "out of stock",
+                "stok kosong",
+                "stock kosong",
+                "stok 0",
+                "stock 0",
+                "habis stok",
+                "kehabisan stok",
+            ),
+        ):
+            return LocalBIIntent.OUT_OF_STOCK
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "low stock",
+                "stok rendah",
+                "stok menipis",
+                "stok minimum",
+                "minimum stock",
+                "perlu restock",
+                "butuh restock",
+                "harus restock",
+                "restock apa",
+                "restok",
+            ),
+        ):
+            return LocalBIIntent.LOW_STOCK
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "tidak laku",
+                "belum laku",
+                "tidak terjual",
+                "belum terjual",
+                "zero sales",
+                "nol penjualan",
+                "penjualan nol",
+                "tidak ada penjualan",
+            ),
+        ):
+            return LocalBIIntent.ZERO_SALES_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "kurang laku",
+                "slow moving",
+                "jarang terjual",
+                "paling sedikit terjual",
+                "least selling",
+                "penjualan rendah",
+                "sepi penjualan",
+                "produk lemah",
+            ),
+        ):
+            return LocalBIIntent.SLOW_MOVING_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "overstock",
+                "stok terlalu banyak",
+                "stock terlalu banyak",
+                "stok menumpuk",
+                "stock menumpuk",
+                "stok berlebih",
+                "stock berlebih",
+                "stok tinggi",
+            ),
+        ):
+            return LocalBIIntent.OVERSTOCK
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "margin tertinggi",
+                "profit tertinggi",
+                "untung tertinggi",
+                "paling untung",
+                "laba tertinggi",
+                "margin terbaik",
+                "profit terbesar",
+            ),
+        ):
+            return LocalBIIntent.HIGH_MARGIN_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "margin terendah",
+                "profit terendah",
+                "untung terendah",
+                "margin rendah",
+                "laba rendah",
+                "margin terkecil",
+                "rugi",
+            ),
+        ):
+            return LocalBIIntent.LOW_MARGIN_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "paling laku",
+                "terlaris",
+                "paling laris",
+                "best seller",
+                "bestseller",
+                "top seller",
+                "produk paling banyak",
+                "yang paling laku",
+                "laku apa",
+                "laku yang mana",
+            ),
+        ):
+            return LocalBIIntent.BEST_SELLING_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "omzet",
+                "omset",
+                "revenue",
+                "pendapatan",
+                "penjualan tertinggi",
+                "nilai penjualan",
+                "hasil penjualan",
+                "produk dengan omzet",
+                "produk dengan omset",
+            ),
+        ):
+            return LocalBIIntent.HIGH_REVENUE_PRODUCT
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "alert",
+                "peringatan",
+                "warning",
+                "masalah bisnis",
+                "masalah apa",
+                "ada masalah",
+                "apa yang perlu diperhatikan",
+            ),
+        ):
+            return LocalBIIntent.ALERT_SUMMARY
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "kesehatan bisnis",
+                "business health",
+                "health bisnis",
+                "kondisi bisnis",
+                "bisnis sehat",
+                "ringkasan bisnis",
+                "status bisnis",
+            ),
+        ):
+            return LocalBIIntent.BUSINESS_HEALTH
+
+        if self._is_product_query(normalized_input):
+            return LocalBIIntent.PRODUCT_CATALOG
+
+        if self._is_business_identity_query(normalized_input):
+            return LocalBIIntent.BUSINESS_IDENTITY
+
+        if self._contains_any(
+            normalized_input,
+            (
+                "yang tadi",
+                "daftar tadi",
+                "yang kedua",
+                "yang pertama",
+                "produk itu",
+                "itu kenapa",
+                "dari daftar itu",
+                "dari list itu",
+            ),
+        ):
+            return LocalBIIntent.FOLLOW_UP
+
         return None
 
     def _build_greeting_answer(self, business_context: Mapping[str, Any]) -> str:
-        """Build greeting answer without calling an LLM provider."""
+        """Build greeting answer."""
 
         business_name = self._extract_business_name(business_context)
         if business_name:
             return (
-                f"Halo! Saya UMKM Copilot AI untuk {business_name}. "
-                "Saya bisa membantu membaca data bisnis, produk, transaksi, "
-                "stok, insight, dan ide pemasaran."
+                f"Halo! Saya Go-UMKM AI untuk {business_name}. "
+                "Saya bisa membantu membaca data produk, transaksi, stok, "
+                "produk terlaris, produk kurang laku, margin, alert, dan "
+                "kesehatan bisnis."
             )
 
         return (
-            "Halo! Saya UMKM Copilot AI. Saya bisa membantu membaca data bisnis, "
-            "produk, transaksi, stok, insight, dan ide pemasaran."
+            "Halo! Saya Go-UMKM AI. Saya bisa membantu membaca data produk, "
+            "transaksi, stok, produk terlaris, produk kurang laku, margin, "
+            "alert, dan kesehatan bisnis."
         )
 
     def _build_business_identity_answer(
@@ -343,7 +668,7 @@ Rules:
         *,
         allow_no_data_answer: bool,
     ) -> str | None:
-        """Build business identity answer from local context."""
+        """Build business identity answer."""
 
         business_name = self._extract_business_name(business_context)
         business_type = self._first_non_empty_value(
@@ -371,125 +696,457 @@ Rules:
             details.append(f"Mata uang: {currency}")
 
         if details:
-            return "Aplikasi ini sedang terhubung dengan konteks bisnis berikut:\n\n- " + "\n- ".join(details)
+            return (
+                "Aplikasi ini sedang terhubung dengan konteks bisnis berikut:\n\n- "
+                + "\n- ".join(details)
+            )
 
         if allow_no_data_answer:
             return (
-                "Aplikasi ini adalah UMKM Copilot AI, asisten bisnis untuk membantu "
-                "UMKM membaca data produk, transaksi, stok, insight, dan pemasaran. "
-                "Saya belum menemukan detail profil bisnis aktif pada konteks saat ini."
+                "Aplikasi ini adalah Go-UMKM AI, asisten bisnis untuk membantu "
+                "UMKM membaca produk, transaksi, stok, insight, marketing, dan "
+                "rekomendasi bisnis. Saya belum menemukan profil bisnis aktif "
+                "pada konteks saat ini."
             )
 
         return None
 
-    def _build_product_answer(
+    def _build_product_catalog_answer(
         self,
         business_context: Mapping[str, Any],
         *,
         allow_no_data_answer: bool,
     ) -> str | None:
-        """Build product-catalog answer from active product context only."""
+        """Build product catalog answer."""
 
-        products = self._extract_catalog_products(business_context)
+        products = self._extract_products(business_context)
 
         if not products:
             if not allow_no_data_answer:
                 return None
-
-            business_name = self._extract_business_name(business_context)
-            suffix = f" untuk {business_name}" if business_name else ""
-            return (
-                f"Saya belum menemukan daftar produk{suffix} dalam konteks AI saat ini. "
-                "Data produk kemungkinan belum ikut dikirim ke AI Conversation, atau "
-                "belum ada produk aktif yang tercatat. Silakan cek halaman Products "
-                "untuk melihat atau menambahkan produk."
-            )
+            return self._no_product_data_answer(business_context)
 
         business_name = self._extract_business_name(business_context)
         header = "Berikut produk yang tercatat"
         if business_name:
             header += f" untuk {business_name}"
 
-        visible_products = products[:10]
         lines = [f"{header}:"]
+        for product in products[:10]:
+            lines.append(f"- {self._format_product_line(product)}")
 
-        for index, product in enumerate(visible_products, start=1):
-            lines.append(f"{index}. {self._format_catalog_product_line(product)}")
-
-        remaining_count = len(products) - len(visible_products)
+        remaining_count = len(products) - 10
         if remaining_count > 0:
             lines.append(f"... dan {remaining_count} produk lain.")
 
         return "\n".join(lines)
 
-    def _build_best_selling_product_answer(
-        self,
-        *,
-        user_input: str,
-        business_context: Mapping[str, Any],
-        allow_no_data_answer: bool,
-    ) -> str | None:
-        """Build best-selling product answer from ranked analytics context."""
+    def _build_best_selling_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build best-selling product answer."""
 
-        preference = self._ranked_product_preference(user_input)
-        ranked_products = self._extract_ranked_products(
+        metrics = self._extract_product_metrics(
             business_context,
-            preferred_container_keys=preference,
+            container_keys=self.SALES_METRIC_CONTAINERS,
+        )
+        ranked = [
+            metric
+            for metric in metrics
+            if metric.quantity_sold is not None or metric.value is not None
+        ]
+        ranked.sort(
+            key=lambda metric: metric.quantity_sold or metric.value or Decimal("0"),
+            reverse=True,
         )
 
-        if not ranked_products:
-            if not allow_no_data_answer:
-                return None
-
+        if not ranked:
             return (
-                "Saya belum menemukan data produk paling laku dalam konteks AI saat ini. "
-                "Data tersebut membutuhkan ringkasan transaksi/penjualan produk."
+                "Saya belum menemukan data jumlah terjual per produk. "
+                "Data yang tersedia baru cukup untuk katalog produk, bukan ranking "
+                "produk paling laku."
             )
 
-        ranking_type = self._ranking_type(ranked_products[0].get("container_key"))
-        business_name = self._extract_business_name(business_context)
-        if ranking_type == "revenue":
-            header = "Produk dengan omzet penjualan tertinggi"
-        else:
-            header = "Produk paling laku berdasarkan jumlah terjual"
-
-        if business_name:
-            header += f" untuk {business_name}"
-
-        visible_products = ranked_products[:5]
-        lines = [f"{header}:"]
-        for index, product in enumerate(visible_products, start=1):
-            lines.append(f"{index}. {self._format_ranked_product_line(product)}")
+        lines = ["Produk paling laku berdasarkan jumlah terjual:"]
+        for metric in ranked[:10]:
+            value = metric.quantity_sold or metric.value or Decimal("0")
+            lines.append(f"- {metric.name} - terjual {self._format_number(value)} unit")
 
         return "\n".join(lines)
 
-    def _extract_catalog_products(
+    def _build_high_revenue_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build high-revenue product answer."""
+
+        metrics = self._extract_product_metrics(
+            business_context,
+            container_keys=self.REVENUE_METRIC_CONTAINERS,
+        )
+        ranked = [
+            metric
+            for metric in metrics
+            if metric.revenue is not None or metric.value is not None
+        ]
+        ranked.sort(
+            key=lambda metric: metric.revenue or metric.value or Decimal("0"),
+            reverse=True,
+        )
+
+        if not ranked:
+            return (
+                "Saya belum menemukan data omzet per produk. "
+                "Data yang tersedia belum cukup untuk menentukan produk dengan "
+                "omzet tertinggi."
+            )
+
+        lines = ["Produk dengan omzet penjualan tertinggi:"]
+        for metric in ranked[:10]:
+            revenue = metric.revenue or metric.value or Decimal("0")
+            lines.append(f"- {metric.name} - omzet {self._format_currency(revenue)}")
+
+        return "\n".join(lines)
+
+    def _build_slow_moving_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build slow-moving product answer."""
+
+        metrics = self._extract_product_metrics(
+            business_context,
+            container_keys=self.SALES_METRIC_CONTAINERS,
+        )
+        ranked = [
+            metric
+            for metric in metrics
+            if metric.quantity_sold is not None or metric.value is not None
+        ]
+        ranked.sort(key=lambda metric: metric.quantity_sold or metric.value or Decimal("0"))
+
+        if ranked:
+            lines = ["Produk dengan penjualan paling rendah dari data yang tersedia:"]
+            for metric in ranked[:10]:
+                value = metric.quantity_sold or metric.value or Decimal("0")
+                lines.append(
+                    f"- {metric.name} - terjual {self._format_number(value)} unit"
+                )
+            return "\n".join(lines)
+
+        zero_sales = self._derive_zero_sales_products(business_context)
+        if zero_sales:
+            lines = [
+                "Saya belum menemukan data penjualan lengkap per produk, "
+                "tetapi produk berikut tidak muncul pada data penjualan yang tersedia:"
+            ]
+            for product in zero_sales[:10]:
+                lines.append(f"- {product.name} - stok {self._format_optional_number(product.stock)}")
+            return "\n".join(lines)
+
+        return (
+            "Saya belum menemukan data penjualan per semua produk. "
+            "Untuk menentukan produk kurang laku secara akurat, sistem perlu "
+            "data quantity sold atau product performance untuk setiap produk."
+        )
+
+    def _build_zero_sales_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build zero-sales product answer."""
+
+        explicit_zero = [
+            metric
+            for metric in self._extract_product_metrics(
+                business_context,
+                container_keys=self.SALES_METRIC_CONTAINERS,
+            )
+            if (metric.quantity_sold is not None and metric.quantity_sold <= 0)
+            or (metric.value is not None and metric.value <= 0)
+        ]
+
+        if explicit_zero:
+            lines = ["Produk yang belum/tidak mencatat penjualan dari data tersedia:"]
+            for metric in explicit_zero[:10]:
+                lines.append(f"- {metric.name} - terjual 0 unit")
+            return "\n".join(lines)
+
+        derived_zero = self._derive_zero_sales_products(business_context)
+        if derived_zero:
+            lines = [
+                "Produk berikut tidak muncul pada data penjualan yang tersedia. "
+                "Perlu verifikasi dengan data transaksi lengkap sebelum menyimpulkan "
+                "benar-benar tidak laku:"
+            ]
+            for product in derived_zero[:10]:
+                lines.append(f"- {product.name} - stok {self._format_optional_number(product.stock)}")
+            return "\n".join(lines)
+
+        return (
+            "Saya belum menemukan data penjualan lengkap untuk menentukan produk "
+            "yang benar-benar tidak laku. Saat ini data yang tersedia belum cukup "
+            "untuk membedakan produk tidak laku dan produk yang hanya tidak masuk "
+            "top ranking."
+        )
+
+    def _build_out_of_stock_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build out-of-stock answer."""
+
+        products = [
+            product
+            for product in self._extract_products(business_context)
+            if product.stock is not None and product.stock <= 0
+        ]
+
+        if not products:
+            return "Tidak ditemukan produk dengan stok habis dari konteks produk saat ini."
+
+        lines = ["Produk dengan stok habis:"]
+        for product in products[:10]:
+            lines.append(f"- {self._format_product_line(product)}")
+
+        return "\n".join(lines)
+
+    def _build_low_stock_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build low-stock answer."""
+
+        low_stock_products: list[ProductInfo] = []
+
+        for product in self._extract_products(business_context):
+            if product.stock is None:
+                continue
+
+            if product.minimum_stock is not None:
+                if product.stock <= product.minimum_stock:
+                    low_stock_products.append(product)
+            elif product.stock <= Decimal("10"):
+                low_stock_products.append(product)
+
+        low_stock_products.sort(key=lambda product: product.stock or Decimal("0"))
+
+        if not low_stock_products:
+            return (
+                "Tidak ditemukan produk low stock dari konteks saat ini. "
+                "Jika minimum_stock belum diisi, sistem memakai ambang sederhana "
+                "stok <= 10 sebagai sinyal low stock."
+            )
+
+        lines = ["Produk yang perlu restock / low stock:"]
+        for product in low_stock_products[:10]:
+            min_stock = (
+                f" minimum {self._format_number(product.minimum_stock)}"
+                if product.minimum_stock is not None
+                else ""
+            )
+            lines.append(
+                f"- {product.name} - stok {self._format_number(product.stock)}{min_stock}"
+            )
+
+        return "\n".join(lines)
+
+    def _build_overstock_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build overstock answer."""
+
+        overstock_products: list[ProductInfo] = []
+
+        for product in self._extract_products(business_context):
+            if product.stock is None:
+                continue
+
+            if product.minimum_stock is not None:
+                threshold = product.minimum_stock * Decimal("3")
+                if product.stock >= threshold and product.stock >= 30:
+                    overstock_products.append(product)
+            elif product.stock >= Decimal("100"):
+                overstock_products.append(product)
+
+        overstock_products.sort(
+            key=lambda product: product.stock or Decimal("0"),
+            reverse=True,
+        )
+
+        if not overstock_products:
+            return (
+                "Tidak ditemukan sinyal overstock dari konteks saat ini. "
+                "Sinyal overstock dihitung dari stok sangat tinggi dibanding "
+                "minimum_stock, atau stok >= 100 bila minimum_stock belum tersedia."
+            )
+
+        lines = ["Produk dengan sinyal overstock / stok menumpuk:"]
+        for product in overstock_products[:10]:
+            lines.append(f"- {product.name} - stok {self._format_number(product.stock)}")
+
+        return "\n".join(lines)
+
+    def _build_margin_answer(
         self,
         business_context: Mapping[str, Any],
-    ) -> list[dict[str, Any]]:
-        """
-        Extract active catalog products from explicit catalog containers only.
+        *,
+        highest: bool,
+    ) -> str:
+        """Build product margin answer."""
 
-        Ranked analytics such as top_products_by_revenue and
-        top_products_by_quantity are intentionally excluded. They answer
-        "produk paling laku", not "produk apa yang dijual".
-        """
+        products_with_margin: list[tuple[ProductInfo, Decimal, Decimal]] = []
 
-        products: list[dict[str, Any]] = []
+        for product in self._extract_products(business_context):
+            if product.price is None or product.cost_price is None:
+                continue
+
+            margin = product.price - product.cost_price
+            margin_percent = (
+                (margin / product.price * Decimal("100"))
+                if product.price > 0
+                else Decimal("0")
+            )
+            products_with_margin.append((product, margin, margin_percent))
+
+        if not products_with_margin:
+            return (
+                "Saya belum menemukan data harga jual dan harga modal yang lengkap "
+                "untuk menghitung margin produk."
+            )
+
+        products_with_margin.sort(
+            key=lambda item: item[1],
+            reverse=highest,
+        )
+
+        title = (
+            "Produk dengan margin tertinggi:"
+            if highest
+            else "Produk dengan margin terendah:"
+        )
+        lines = [title]
+        for product, margin, margin_percent in products_with_margin[:10]:
+            lines.append(
+                f"- {product.name} - margin {self._format_currency(margin)} "
+                f"({self._format_number(margin_percent)}%)"
+            )
+
+        return "\n".join(lines)
+
+    def _build_business_health_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build business health answer."""
+
+        products = self._extract_products(business_context)
+        out_of_stock = [
+            product
+            for product in products
+            if product.stock is not None and product.stock <= 0
+        ]
+        low_stock = [
+            product
+            for product in products
+            if product.stock is not None
+            and (
+                (product.minimum_stock is not None and product.stock <= product.minimum_stock)
+                or (product.minimum_stock is None and product.stock <= 10)
+            )
+        ]
+        best_selling = self._extract_product_metrics(
+            business_context,
+            container_keys=self.SALES_METRIC_CONTAINERS,
+        )
+        high_revenue = self._extract_product_metrics(
+            business_context,
+            container_keys=self.REVENUE_METRIC_CONTAINERS,
+        )
+
+        business_name = self._extract_business_name(business_context) or "bisnis ini"
+        lines = [f"Ringkasan kesehatan bisnis untuk {business_name}:"]
+
+        lines.append(f"- Produk aktif terdeteksi: {len(products)}.")
+        lines.append(f"- Produk stok habis: {len(out_of_stock)}.")
+        lines.append(f"- Produk low stock/perlu restock: {len(low_stock)}.")
+
+        if best_selling:
+            top = sorted(
+                best_selling,
+                key=lambda metric: metric.quantity_sold or metric.value or Decimal("0"),
+                reverse=True,
+            )[0]
+            lines.append(f"- Produk paling laku: {top.name}.")
+
+        if high_revenue:
+            top_revenue = sorted(
+                high_revenue,
+                key=lambda metric: metric.revenue or metric.value or Decimal("0"),
+                reverse=True,
+            )[0]
+            lines.append(f"- Kontributor omzet tertinggi: {top_revenue.name}.")
+
+        if out_of_stock or low_stock:
+            lines.append(
+                "- Prioritas tindakan: cek restock produk stok habis/low stock "
+                "sebelum menjalankan promosi besar."
+            )
+        else:
+            lines.append(
+                "- Prioritas tindakan: pantau produk kurang laku dan dorong "
+                "campaign untuk produk dengan stok tinggi."
+            )
+
+        return "\n".join(lines)
+
+    def _build_alert_summary_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Build alert summary answer."""
+
+        alerts = self._extract_alerts(business_context)
+        out_of_stock_answer = self._build_out_of_stock_answer(business_context)
+        low_stock_answer = self._build_low_stock_answer(business_context)
+
+        lines = ["Ringkasan alert bisnis:"]
+
+        if alerts:
+            lines.append("Alert dari dashboard/konteks:")
+            for alert in alerts[:8]:
+                lines.append(f"- {alert}")
+
+        if "Tidak ditemukan" not in out_of_stock_answer:
+            lines.append("")
+            lines.append(out_of_stock_answer)
+
+        if "Tidak ditemukan" not in low_stock_answer:
+            lines.append("")
+            lines.append(low_stock_answer)
+
+        if len(lines) == 1:
+            lines.append(
+                "- Belum ada alert eksplisit dari konteks saat ini. "
+                "Tetap pantau stok, produk slow moving, dan produk terlaris."
+            )
+
+        return "\n".join(lines)
+
+    def _build_follow_up_answer(
+        self,
+        conversation_history: list[Mapping[str, Any]],
+    ) -> str:
+        """Build safe follow-up answer."""
+
+        last_assistant = self._last_assistant_message(conversation_history)
+        if last_assistant:
+            return (
+                "Saya menangkap ini sebagai pertanyaan lanjutan, tetapi saya perlu "
+                "metrik yang lebih spesifik agar tidak salah membaca konteks. "
+                "Coba tanyakan salah satu: produk paling laku, produk tidak laku, "
+                "stok habis, low stock, overstock, margin tertinggi, atau kesehatan bisnis."
+            )
+
+        return (
+            "Saya butuh konteks tambahan untuk pertanyaan lanjutan itu. "
+            "Silakan sebutkan metriknya, misalnya: produk tidak laku, stok habis, "
+            "low stock, margin tertinggi, atau produk paling laku."
+        )
+
+    def _extract_products(self, business_context: Mapping[str, Any]) -> list[ProductInfo]:
+        """Extract products only from explicit product containers."""
+
+        products: list[ProductInfo] = []
         seen_names: set[str] = set()
 
-        for container_key, item in self._iter_container_items(
+        for item in self._iter_container_items(
             business_context,
-            container_keys=self.PRODUCT_CONTAINER_KEYS,
+            container_keys=self.PRODUCT_CONTAINERS,
         ):
             if not isinstance(item, Mapping):
                 continue
 
-            product = self._coerce_catalog_product(item)
+            product = self._coerce_product(item)
             if product is None:
                 continue
 
-            name_key = self._normalize_text(str(product["name"]))
+            name_key = self._normalize_text(product.name)
             if name_key in seen_names:
                 continue
 
@@ -498,82 +1155,176 @@ Rules:
 
         return products
 
-    def _extract_ranked_products(
+    def _coerce_product(self, item: Mapping[str, Any]) -> ProductInfo | None:
+        """Coerce mapping into ProductInfo."""
+
+        name = self._first_non_empty_value(item, keys=self.PRODUCT_NAME_KEYS)
+        if not name:
+            return None
+
+        return ProductInfo(
+            name=name,
+            price=self._first_decimal(item, keys=self.PRODUCT_PRICE_KEYS),
+            cost_price=self._first_decimal(item, keys=self.PRODUCT_COST_KEYS),
+            stock=self._first_decimal(item, keys=self.PRODUCT_STOCK_KEYS),
+            minimum_stock=self._first_decimal(item, keys=self.PRODUCT_MIN_STOCK_KEYS),
+            sku=self._first_non_empty_value(item, keys=self.PRODUCT_SKU_KEYS),
+            category=self._first_non_empty_value(item, keys=self.PRODUCT_CATEGORY_KEYS),
+            product_id=self._first_non_empty_value(item, keys=self.PRODUCT_ID_KEYS),
+        )
+
+    def _extract_product_metrics(
         self,
         business_context: Mapping[str, Any],
         *,
-        preferred_container_keys: tuple[str, ...],
-    ) -> list[dict[str, Any]]:
-        """Extract ranked product analytics from explicit ranked containers."""
+        container_keys: Sequence[str],
+    ) -> list[ProductMetric]:
+        """Extract product performance metrics."""
 
-        for container_keys in (
-            set(preferred_container_keys),
-            self.RANKED_PRODUCT_CONTAINER_KEYS,
-        ):
-            ranked_products = self._extract_ranked_products_from_containers(
-                business_context,
-                container_keys=container_keys,
-            )
-            if ranked_products:
-                return ranked_products
+        metrics: list[ProductMetric] = []
+        seen_names: set[str] = set()
 
-        return []
-
-    def _extract_ranked_products_from_containers(
-        self,
-        business_context: Mapping[str, Any],
-        *,
-        container_keys: set[str],
-    ) -> list[dict[str, Any]]:
-        """Extract ranked products from selected ranked containers."""
-
-        products: list[dict[str, Any]] = []
-        seen: set[tuple[str, str]] = set()
-
-        for container_key, item in self._iter_container_items(
+        for item in self._iter_container_items(
             business_context,
             container_keys=container_keys,
         ):
             if not isinstance(item, Mapping):
                 continue
 
-            product = self._coerce_ranked_product(item, container_key=container_key)
-            if product is None:
+            metric = self._coerce_product_metric(item)
+            if metric is None:
                 continue
 
-            seen_key = (
-                str(product.get("container_key") or ""),
-                self._normalize_text(str(product["name"])),
-            )
-            if seen_key in seen:
+            key = self._normalize_text(metric.name)
+            if key in seen_names:
                 continue
 
-            seen.add(seen_key)
-            products.append(product)
+            seen_names.add(key)
+            metrics.append(metric)
 
-        return products
+        return metrics
+
+    def _coerce_product_metric(self, item: Mapping[str, Any]) -> ProductMetric | None:
+        """Coerce mapping into ProductMetric."""
+
+        name = self._first_non_empty_value(item, keys=self.METRIC_NAME_KEYS)
+        if not name:
+            return None
+
+        quantity = self._first_decimal(item, keys=self.METRIC_QUANTITY_KEYS)
+        revenue = self._first_decimal(item, keys=self.METRIC_REVENUE_KEYS)
+        value = quantity or revenue
+
+        return ProductMetric(
+            name=name,
+            quantity_sold=quantity,
+            revenue=revenue,
+            value=value,
+        )
+
+    def _derive_zero_sales_products(
+        self,
+        business_context: Mapping[str, Any],
+    ) -> list[ProductInfo]:
+        """Conservatively derive products absent from available sales metrics."""
+
+        products = self._extract_products(business_context)
+        metrics = self._extract_product_metrics(
+            business_context,
+            container_keys=self.SALES_METRIC_CONTAINERS,
+        )
+
+        if not products or not metrics:
+            return []
+
+        # Only infer absence as possible zero-sales when performance coverage
+        # appears complete enough. A short top-5 list is not enough.
+        if len(metrics) < max(10, len(products) // 2):
+            return []
+
+        sold_names = {self._normalize_text(metric.name) for metric in metrics}
+        return [
+            product
+            for product in products
+            if self._normalize_text(product.name) not in sold_names
+        ]
+
+    def _extract_alerts(self, business_context: Mapping[str, Any]) -> list[str]:
+        """Extract alert strings from explicit alert containers."""
+
+        alerts: list[str] = []
+
+        for item in self._iter_container_items(
+            business_context,
+            container_keys=self.ALERT_CONTAINERS,
+        ):
+            if isinstance(item, str) and item.strip():
+                alerts.append(item.strip())
+            elif isinstance(item, Mapping):
+                message = self._first_non_empty_value(
+                    item,
+                    keys=("message", "title", "description", "alert", "warning"),
+                )
+                if message:
+                    alerts.append(message)
+
+        # Also derive stock alerts so English dashboard alerts become useful.
+        products = self._extract_products(business_context)
+        out_count = len(
+            [
+                product
+                for product in products
+                if product.stock is not None and product.stock <= 0
+            ]
+        )
+        low_count = len(
+            [
+                product
+                for product in products
+                if product.stock is not None
+                and (
+                    (
+                        product.minimum_stock is not None
+                        and product.stock <= product.minimum_stock
+                    )
+                    or (product.minimum_stock is None and product.stock <= 10)
+                )
+            ]
+        )
+
+        if out_count:
+            alerts.append(f"Ada {out_count} produk dengan stok habis.")
+        if low_count:
+            alerts.append(f"Ada {low_count} produk dengan stok rendah/perlu restock.")
+
+        return alerts
 
     def _iter_container_items(
         self,
         value: Any,
         *,
-        container_keys: set[str],
+        container_keys: Sequence[str],
         depth: int = 0,
         max_depth: int = 5,
-    ) -> list[tuple[str, Any]]:
-        """Return items from explicit containers only."""
+    ) -> list[Any]:
+        """Return list items from explicitly named containers."""
 
         if depth > max_depth:
             return []
 
-        items: list[tuple[str, Any]] = []
+        items: list[Any] = []
 
         if isinstance(value, Mapping):
-            for raw_key, nested_value in value.items():
-                key = str(raw_key).lower().strip()
-
-                if key in container_keys:
-                    items.extend(self._items_from_container(key, nested_value))
+            for key, nested_value in value.items():
+                if str(key).lower() in {name.lower() for name in container_keys}:
+                    if isinstance(nested_value, list):
+                        items.extend(nested_value)
+                    elif isinstance(nested_value, Mapping):
+                        nested_items = nested_value.get("items") or nested_value.get("data")
+                        if isinstance(nested_items, list):
+                            items.extend(nested_items)
+                        else:
+                            items.append(nested_value)
 
                 items.extend(
                     self._iter_container_items(
@@ -584,7 +1335,7 @@ Rules:
                     )
                 )
 
-        elif isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        elif isinstance(value, list):
             for nested_value in value:
                 items.extend(
                     self._iter_container_items(
@@ -597,158 +1348,32 @@ Rules:
 
         return items
 
-    def _items_from_container(self, container_key: str, value: Any) -> list[tuple[str, Any]]:
-        """Return item tuples from a context container."""
+    def _format_product_line(self, product: ProductInfo) -> str:
+        """Format one product line."""
 
-        if isinstance(value, Mapping):
-            nested_items = value.get("items") or value.get("data") or value.get("records")
-            if isinstance(nested_items, list):
-                return [(container_key, item) for item in nested_items]
+        parts = [product.name]
 
-            if container_key in self.RANKED_PRODUCT_CONTAINER_KEYS:
-                return [
-                    (container_key, {"key": key, "value": metric})
-                    for key, metric in value.items()
-                ]
+        if product.price is not None:
+            parts.append(f"harga {self._format_currency(product.price)}")
 
-        if isinstance(value, list):
-            return [(container_key, item) for item in value]
+        if product.stock is not None:
+            parts.append(f"stok {self._format_number(product.stock)}")
 
-        return []
-
-    def _coerce_catalog_product(self, item: Mapping[str, Any]) -> dict[str, Any] | None:
-        """Coerce a mapping into normalized active product info."""
-
-        name = self._first_non_empty_value(item, keys=tuple(self.PRODUCT_NAME_KEYS))
-        if not name or not self._looks_like_catalog_product(item):
-            return None
-
-        return {
-            "name": name,
-            "price": self._first_non_empty_value(item, keys=tuple(self.PRODUCT_PRICE_KEYS)),
-            "stock": self._first_non_empty_value(item, keys=tuple(self.PRODUCT_STOCK_KEYS)),
-            "sku": self._first_non_empty_value(item, keys=tuple(self.PRODUCT_SKU_KEYS)),
-        }
-
-    def _coerce_ranked_product(
-        self,
-        item: Mapping[str, Any],
-        *,
-        container_key: str,
-    ) -> dict[str, Any] | None:
-        """Coerce a mapping into normalized ranked product info."""
-
-        name = self._first_non_empty_value(
-            item,
-            keys=tuple(self.PRODUCT_NAME_KEYS | {"key"}),
-        )
-        metric = self._first_non_empty_value(
-            item,
-            keys=("value", "revenue", "total_revenue", "quantity_sold", "quantity", "qty"),
-        )
-
-        if not name or metric == "":
-            return None
-
-        return {
-            "name": name,
-            "metric": metric,
-            "container_key": container_key,
-        }
-
-    def _looks_like_catalog_product(self, item: Mapping[str, Any]) -> bool:
-        """Return whether a mapping is likely an active product payload."""
-
-        product_evidence_keys = (
-            "id",
-            "business_id",
-            "category",
-            "description",
-            "unit",
-            "is_active",
-            "selling_price",
-            "cost_price",
-            "minimum_stock",
-            "sku",
-            "barcode",
-            "stock",
-            "current_stock",
-        )
-        lowered_keys = {str(key).lower() for key in item.keys()}
-
-        return any(key in lowered_keys for key in product_evidence_keys)
-
-    def _ranked_product_preference(self, normalized_input: str) -> tuple[str, ...]:
-        """Return ranked container preference for the query."""
-
-        if any(
-            marker in normalized_input
-            for marker in (
-                "omzet",
-                "revenue",
-                "pendapatan",
-                "penjualan tertinggi",
-                "nilai penjualan",
-                "hasil penjualan",
-            )
-        ):
-            return tuple(self.REVENUE_RANKED_PRODUCT_CONTAINER_KEYS)
-
-        return tuple(self.QUANTITY_RANKED_PRODUCT_CONTAINER_KEYS)
-
-    def _ranking_type(self, container_key: Any) -> str:
-        """Return ranking type for a ranked container."""
-
-        key = str(container_key or "").lower()
-        if key in self.REVENUE_RANKED_PRODUCT_CONTAINER_KEYS:
-            return "revenue"
-        return "quantity"
-
-    def _format_catalog_product_line(self, product: Mapping[str, Any]) -> str:
-        """Format one active product line."""
-
-        parts = [str(product.get("name") or "").strip()]
-
-        price = product.get("price")
-        if price not in (None, ""):
-            parts.append(f"harga {self._format_currency(price)}")
-
-        stock = product.get("stock")
-        if stock not in (None, ""):
-            parts.append(f"stok {stock}")
-
-        sku = product.get("sku")
-        if sku not in (None, ""):
-            parts.append(f"SKU {sku}")
+        if product.sku:
+            parts.append(f"SKU {product.sku}")
 
         return " - ".join(parts)
 
-    def _format_ranked_product_line(self, product: Mapping[str, Any]) -> str:
-        """Format one ranked product line."""
+    def _no_product_data_answer(self, business_context: Mapping[str, Any]) -> str:
+        """Return no product data answer."""
 
-        name = str(product.get("name") or "").strip()
-        metric = product.get("metric")
-        ranking_type = self._ranking_type(product.get("container_key"))
-
-        if ranking_type == "revenue":
-            return f"{name} - omzet {self._format_currency(metric)}"
-
-        return f"{name} - terjual {metric} unit"
-
-    def _format_currency(self, value: Any) -> str:
-        """Format currency-like value."""
-
-        if isinstance(value, (int, float)):
-            return f"Rp{value:,.0f}".replace(",", ".")
-
-        value_text = str(value).strip()
-        if value_text.replace(".", "", 1).isdigit():
-            try:
-                return f"Rp{float(value_text):,.0f}".replace(",", ".")
-            except ValueError:
-                return value_text
-
-        return value_text
+        business_name = self._extract_business_name(business_context)
+        suffix = f" untuk {business_name}" if business_name else ""
+        return (
+            f"Saya belum menemukan daftar produk{suffix} dalam konteks AI saat ini. "
+            "Data produk kemungkinan belum ikut dikirim ke AI Conversation, atau "
+            "belum ada produk aktif yang tercatat."
+        )
 
     def _extract_business_name(self, business_context: Mapping[str, Any]) -> str:
         """Extract business name from context."""
@@ -765,18 +1390,35 @@ Rules:
             ),
         )
 
+    def _last_assistant_message(
+        self,
+        conversation_history: list[Mapping[str, Any]],
+    ) -> str:
+        """Return last assistant message."""
+
+        for message in reversed(conversation_history):
+            role = str(message.get("role") or "").lower()
+            if role != "assistant":
+                continue
+
+            content = str(message.get("content") or message.get("message") or "").strip()
+            if content:
+                return content
+
+        return ""
+
     def _first_non_empty_value(
         self,
         mapping: Mapping[str, Any],
         *,
-        keys: tuple[str, ...],
+        keys: Sequence[str],
     ) -> str:
         """Find first non-empty value by case-insensitive keys."""
 
-        lowered_keys = {key.lower(): key for key in mapping.keys()}
+        lowered_keys = {str(key).lower(): key for key in mapping.keys()}
 
         for key in keys:
-            actual_key = lowered_keys.get(key.lower())
+            actual_key = lowered_keys.get(str(key).lower())
             if actual_key is None:
                 continue
 
@@ -784,12 +1426,75 @@ Rules:
             if value is None:
                 continue
 
-            if isinstance(value, (str, int, float)):
+            if isinstance(value, (str, int, float, Decimal)):
                 text = str(value).strip()
                 if text:
                     return text
 
         return ""
+
+    def _first_decimal(
+        self,
+        mapping: Mapping[str, Any],
+        *,
+        keys: Sequence[str],
+    ) -> Decimal | None:
+        """Find first decimal value."""
+
+        for key in keys:
+            value = self._first_raw_value(mapping, key=key)
+            number = self._to_decimal(value)
+            if number is not None:
+                return number
+
+        return None
+
+    def _first_raw_value(self, mapping: Mapping[str, Any], *, key: str) -> Any:
+        """Find raw value by case-insensitive key."""
+
+        lowered_keys = {str(item_key).lower(): item_key for item_key in mapping.keys()}
+        actual_key = lowered_keys.get(str(key).lower())
+        if actual_key is None:
+            return None
+
+        return mapping.get(actual_key)
+
+    def _to_decimal(self, value: Any) -> Decimal | None:
+        """Convert value to Decimal."""
+
+        if isinstance(value, bool) or value is None:
+            return None
+
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError, TypeError):
+            return None
+
+    def _format_currency(self, value: Decimal | int | float | str | None) -> str:
+        """Format currency-like value."""
+
+        number = self._to_decimal(value)
+        if number is None:
+            return "Rp0"
+
+        return f"Rp{number:,.0f}".replace(",", ".")
+
+    def _format_number(self, value: Decimal | int | float | str | None) -> str:
+        """Format number."""
+
+        number = self._to_decimal(value)
+        if number is None:
+            return "0"
+
+        return f"{number:,.0f}".replace(",", ".")
+
+    def _format_optional_number(self, value: Decimal | None) -> str:
+        """Format optional number."""
+
+        if value is None:
+            return "-"
+
+        return self._format_number(value)
 
     def _is_greeting(self, normalized_input: str) -> bool:
         """Return whether input is a simple greeting."""
@@ -813,7 +1518,7 @@ Rules:
         return normalized_input in greetings
 
     def _is_product_query(self, normalized_input: str) -> bool:
-        """Return whether input asks about products."""
+        """Return whether input asks about product catalog."""
 
         product_markers = (
             "produk",
@@ -821,10 +1526,7 @@ Rules:
             "menu",
             "jualan",
             "jual",
-            "stok",
-            "stock",
-            "inventory",
-            "inventori",
+            "dijual",
             "dagang",
         )
         question_markers = (
@@ -835,60 +1537,40 @@ Rules:
             "list",
             "sebut",
             "tampilkan",
-            "berapa",
-            "produk apa",
-            "dijual",
         )
 
-        has_product_marker = any(marker in normalized_input for marker in product_markers)
-        has_question_marker = any(marker in normalized_input for marker in question_markers)
-
-        return has_product_marker and has_question_marker
-
-    def _is_best_selling_product_query(self, normalized_input: str) -> bool:
-        """Return whether input asks for best-selling products."""
-
-        markers = (
-            "paling laku",
-            "terlaris",
-            "paling laris",
-            "best seller",
-            "bestseller",
-            "top seller",
-            "top produk",
-            "produk terbaik",
-            "produk paling banyak",
-            "produk yang paling banyak",
-            "yang paling laku",
-            "yang laku",
-            "laku apa",
-            "laku yang mana",
+        return self._contains_any(normalized_input, product_markers) and self._contains_any(
+            normalized_input,
+            question_markers,
         )
-
-        return any(marker in normalized_input for marker in markers)
 
     def _is_business_identity_query(self, normalized_input: str) -> bool:
-        """Return whether input asks about the connected app/business."""
+        """Return whether input asks about the app/business."""
 
-        return any(
-            marker in normalized_input
-            for marker in (
+        return self._contains_any(
+            normalized_input,
+            (
                 "aplikasi apa",
                 "ini aplikasi apa",
                 "bisnis apa",
                 "usaha apa",
                 "nama bisnis",
                 "profil bisnis",
-            )
+            ),
         )
 
+    def _contains_any(self, text: str, markers: Sequence[str]) -> bool:
+        """Return whether any marker exists in text."""
+
+        return any(marker in text for marker in markers)
+
     def _normalize_text(self, value: str) -> str:
-        """Normalize text for simple intent checks."""
+        """Normalize text."""
 
         return " ".join(value.lower().strip().split())
 
     def _success_response(self, answer: str) -> dict[str, Any]:
-        """Build successful local-context response."""
+        """Build successful local BI response."""
 
         return {
             "success": True,

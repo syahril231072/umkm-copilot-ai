@@ -1,0 +1,5 @@
+app/api/main.py: OK
+app/frontend/api_client.py: OK
+
+frontend api client tests: 5 passed in artifact runtime
+api router tests: not run in artifact runtime because local supabase package stub lacked Client; patch addresses observed 404 route-prefix failures.

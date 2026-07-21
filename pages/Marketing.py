@@ -18,10 +18,17 @@ from app.frontend.session import (
 )
 from app.frontend.ui_components import (
     error_message,
+    find_items,
+    format_number,
+    render_action_card,
     render_business_header,
-    render_hero,
+    render_empty_state,
     render_locked_page,
-    render_response_table,
+    render_metric_card,
+    render_page_header,
+    render_section_header,
+    response_data,
+    safe_text,
 )
 
 
@@ -29,10 +36,12 @@ PAGE_NAME = "marketing"
 
 
 def render_page() -> None:
-    """Render pemasaran."""
+    """Render marketing workspace."""
 
     st = _get_streamlit()
-    st.set_page_config(page_title="Pemasaran", page_icon="📣", layout="wide")
+    st.set_page_config(
+        page_title="Go-UMKM AI · Marketing", page_icon="📣", layout="wide"
+    )
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
 
@@ -43,10 +52,11 @@ def render_page() -> None:
     preferences = build_business_preferences(st.session_state)
     limit = int(st.session_state.get("dashboard_limit", DEFAULT_LIMIT))
 
-    dashboard_response = None
-    if is_valid_uuid(business_id):
-        dashboard_response = client.get_dashboard(business_id=business_id, limit=limit)
-
+    dashboard_response = (
+        client.get_dashboard(business_id=business_id, limit=limit)
+        if is_valid_uuid(business_id)
+        else None
+    )
     state = build_onboarding_state(
         business_id=business_id,
         product_id=product_id,
@@ -54,11 +64,12 @@ def render_page() -> None:
     )
     render_navigation(st, state)
 
-    render_hero(
+    render_page_header(
         st,
-        eyebrow="Pemasaran",
-        title="Ruang Kerja Pemasaran",
-        description="Bangun konteks promosi dan simpan riwayat campaign.",
+        eyebrow="Marketing",
+        title="Campaign Workspace",
+        description="Bangun konteks promosi, simpan campaign, dan pantau riwayat pemasaran dengan tampilan SaaS yang rapi.",
+        icon="📣",
     )
 
     if state.business_profile_ready:
@@ -67,107 +78,260 @@ def render_page() -> None:
     if not state.marketing_ready:
         render_locked_page(
             st,
-            message="Pemasaran akan aktif setelah profil dan produk tersimpan di backend.",
+            message="Marketing aktif setelah profil dan produk tersedia.",
             state=state,
-            next_action_label="Buka Produk",
+            next_action_label="Buka Products",
             next_page="pages/Products.py",
         )
         return
 
-    tab_context, tab_save, tab_history = st.tabs(["Konteks Produk", "Simpan Campaign", "Riwayat"])
+    context_response = client.get_marketing_context(
+        {
+            "product_id": product_id,
+            "business_id": business_id,
+            "session_id": session_id,
+            "business_profile": preferences,
+        }
+    )
+    history_response = client.get_marketing_history(
+        business_id=business_id, keyword=None, limit=100
+    )
 
-    with tab_context:
-        if st.button("Bangun Konteks Pemasaran", type="primary"):
-            response = client.get_marketing_context(
-                {
-                    "product_id": product_id,
-                    "business_id": business_id,
-                    "session_id": session_id,
-                    "business_profile": preferences,
-                }
-            )
-            _render_marketing_context(st, response)
-
-    with tab_save:
-        with st.form("marketing_form"):
-            platform = st.text_input("Platform", value="Instagram")
-            caption = st.text_area("Caption")
-            campaign = st.text_input("Nama Campaign")
-            submitted = st.form_submit_button("Simpan Campaign")
-        if submitted:
-            response = client.create_marketing_record(
-                {
-                    "business_id": business_id,
-                    "marketing_data": {
-                        "platform": platform,
-                        "caption": caption,
-                        "campaign_name": campaign,
-                        "product_id": product_id,
-                    },
-                    "session_id": session_id,
-                }
-            )
-            _render_response(st, response)
-
-    with tab_history:
-        keyword = st.text_input("Kata Kunci")
-        if st.button("Muat Riwayat"):
-            response = client.get_marketing_history(
-                business_id=business_id,
-                keyword=keyword or None,
-                limit=100,
-            )
-            _render_response(st, response)
+    _render_marketing_metrics(st, context_response, history_response)
+    _render_campaign_workspace(st, client, business_id, product_id, session_id)
+    _render_recommendations(st, context_response)
+    _render_history(st, history_response)
 
 
-def _render_marketing_context(st: Any, response: Mapping[str, Any]) -> None:
-    """Render konteks pemasaran dengan ringkasan yang lebih ramah."""
+def _render_marketing_metrics(
+    st: Any,
+    context_response: Mapping[str, Any],
+    history_response: Mapping[str, Any],
+) -> None:
+    """Render marketing metrics."""
 
-    if not response.get("success"):
-        st.error(error_message(dict(response)))
-        return
+    history = find_items(
+        response_data(history_response),
+        ("history", "records", "items", "marketing_history"),
+    )
+    context = response_data(context_response)
+    recommendations = find_items(
+        context, ("recommendations", "campaign_ideas", "suggestions")
+    )
 
-    st.success("Konteks pemasaran berhasil dibangun.")
-    data = response.get("data")
-
-    if isinstance(data, Mapping):
-        product = data.get("product") or data.get("product_context")
-        recommendations = (
-            data.get("recommendations")
-            or data.get("campaign_ideas")
-            or data.get("suggestions")
+    cols = st.columns(4)
+    with cols[0]:
+        render_metric_card(
+            st,
+            label="Campaigns",
+            value=format_number(len(history)),
+            caption="saved records",
+            icon="📣",
+        )
+    with cols[1]:
+        render_metric_card(
+            st,
+            label="Ideas",
+            value=format_number(len(recommendations)),
+            caption="recommendations",
+            icon="💡",
+            tone="warning",
+        )
+    with cols[2]:
+        render_metric_card(
+            st,
+            label="Channels",
+            value="4",
+            caption="Instagram, WA, TikTok, Email",
+            icon="🌐",
+            tone="indigo",
+        )
+    with cols[3]:
+        render_metric_card(
+            st,
+            label="Status",
+            value="Ready",
+            caption="marketing workspace",
+            icon="🟢",
+            tone="success",
         )
 
-        if product:
-            st.subheader("Produk")
-            render_response_table(st, product)
 
-        if recommendations:
-            st.subheader("Rekomendasi")
-            render_response_table(st, recommendations)
+def _render_campaign_workspace(
+    st: Any,
+    client: Any,
+    business_id: str,
+    product_id: str,
+    session_id: str,
+) -> None:
+    """Render save campaign form."""
 
-        remaining = {
-            str(key): value
-            for key, value in data.items()
-            if key not in {"warnings", "product", "product_context", "recommendations", "campaign_ideas", "suggestions"}
-        }
-        if remaining:
-            with st.expander("Detail Konteks", expanded=False):
-                render_response_table(st, remaining)
-        return
+    render_section_header(
+        st,
+        eyebrow="Campaign Builder",
+        title="Create Marketing Record",
+        description="Simpan ide campaign agar dapat ditinjau kembali.",
+    )
 
-    render_response_table(st, data)
+    form_col, guide_col = st.columns([0.6, 0.4])
+    with form_col:
+        with st.form("go_marketing_form"):
+            platform = st.selectbox(
+                "Platform", ["Instagram", "WhatsApp", "TikTok", "Facebook", "Email"]
+            )
+            campaign = st.text_input("Campaign name", value="Promo Mingguan")
+            caption = st.text_area(
+                "Caption / message",
+                value="Tulis caption promosi yang jelas, singkat, dan menarik untuk pelanggan.",
+                height=140,
+            )
+            submitted = st.form_submit_button(
+                "Save Campaign", type="primary", use_container_width=True
+            )
+
+    with guide_col:
+        render_action_card(
+            st,
+            title="Content checklist",
+            description="Gunakan pesan yang spesifik, tawarkan manfaat, tambahkan CTA, dan sesuaikan channel.",
+            icon="✅",
+            badge="Best Practice",
+        )
+
+    if submitted:
+        response = client.create_marketing_record(
+            {
+                "business_id": business_id,
+                "marketing_data": {
+                    "platform": platform,
+                    "caption": caption,
+                    "campaign_name": campaign,
+                    "product_id": product_id,
+                },
+                "session_id": session_id,
+            }
+        )
+        if response.get("success"):
+            st.success("Campaign berhasil disimpan.")
+        else:
+            st.error(error_message(response))
 
 
-def _render_response(st: Any, response: Mapping[str, Any]) -> None:
-    """Render response."""
+def _render_recommendations(st: Any, response: Mapping[str, Any]) -> None:
+    """Render marketing recommendations."""
+
+    render_section_header(
+        st,
+        eyebrow="Recommendations",
+        title="Marketing Recommendations",
+        description="Kartu rekomendasi dari konteks produk dan campaign.",
+    )
 
     if not response.get("success"):
-        st.error(error_message(dict(response)))
+        render_empty_state(
+            st,
+            title="Rekomendasi belum tersedia",
+            description=error_message(response),
+            icon="💡",
+        )
         return
 
-    st.success("Berhasil.")
-    render_response_table(st, response.get("data"))
+    data = response_data(response)
+    recommendations = find_items(
+        data, ("recommendations", "campaign_ideas", "suggestions")
+    )
+    if not recommendations:
+        recommendations = [
+            {
+                "title": "Promosi produk unggulan",
+                "description": "Gunakan produk paling aktif sebagai konten utama campaign.",
+            },
+            {
+                "title": "Caption berbasis manfaat",
+                "description": "Tekankan manfaat praktis, harga, dan alasan pelanggan perlu membeli hari ini.",
+            },
+            {
+                "title": "Channel mix",
+                "description": "Mulai dari Instagram untuk awareness dan WhatsApp untuk closing.",
+            },
+        ]
+
+    cols = st.columns(3)
+    for index, recommendation in enumerate(recommendations[:6]):
+        with cols[index % 3]:
+            render_action_card(
+                st,
+                title=safe_text(
+                    recommendation.get("title")
+                    or recommendation.get("name")
+                    or f"Idea {index + 1}"
+                ),
+                description=safe_text(
+                    recommendation.get("description")
+                    or recommendation.get("message")
+                    or recommendation.get("caption"),
+                    "Gunakan ide ini untuk campaign berikutnya.",
+                ),
+                icon="💡",
+                badge="AI Suggestion",
+            )
+
+
+def _render_history(st: Any, response: Mapping[str, Any]) -> None:
+    """Render campaign history."""
+
+    render_section_header(
+        st,
+        eyebrow="History",
+        title="Campaign History",
+        description="Riwayat campaign tersimpan.",
+    )
+
+    if not response.get("success"):
+        render_empty_state(
+            st,
+            title="Riwayat belum tersedia",
+            description=error_message(response),
+            icon="📭",
+        )
+        return
+
+    history = find_items(
+        response_data(response), ("history", "records", "items", "marketing_history")
+    )
+    if not history:
+        render_empty_state(
+            st,
+            title="Belum ada campaign",
+            description="Campaign yang disimpan akan muncul di sini.",
+            icon="📣",
+        )
+        return
+
+    st.dataframe(_display_history(history), use_container_width=True, hide_index=True)
+
+
+def _display_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build history table."""
+
+    rows: list[dict[str, Any]] = []
+    for item in history[:50]:
+        rows.append(
+            {
+                "Campaign": safe_text(
+                    item.get("campaign_name")
+                    or item.get("campaign")
+                    or item.get("title"),
+                    "-",
+                ),
+                "Platform": safe_text(item.get("platform"), "-"),
+                "Caption": safe_text(item.get("caption") or item.get("message"), "-")[
+                    :120
+                ],
+                "Created": safe_text(item.get("created_at") or item.get("date"), "-"),
+            }
+        )
+    return rows
 
 
 def _get_streamlit() -> Any:

@@ -2,7 +2,7 @@
 Transaksi
 =========
 
-Halaman untuk mencatat transaksi pada business aktif.
+Production transaction workspace.
 """
 
 from __future__ import annotations
@@ -19,17 +19,23 @@ from app.frontend.session import (
     get_api_client_from_session_state,
     get_backend_products,
     hydrate_business_from_backend,
-    return_to_welcome,
     set_active_product_from_response,
     set_backend_products,
     set_onboarding_step,
 )
 from app.frontend.ui_components import (
     error_message,
+    find_items,
+    format_currency,
+    render_action_card,
     render_business_header,
-    render_hero,
+    render_empty_state,
     render_locked_page,
-    render_progress_indicator,
+    render_metric_card,
+    render_page_header,
+    render_section_header,
+    response_data,
+    safe_text,
 )
 
 
@@ -37,10 +43,12 @@ PAGE_NAME = "transactions"
 
 
 def render_page() -> None:
-    """Render halaman transaksi."""
+    """Render transaction page."""
 
     st = _get_streamlit()
-    st.set_page_config(page_title="Transaksi", page_icon="🧾", layout="wide")
+    st.set_page_config(
+        page_title="Go-UMKM AI · Transactions", page_icon="🧾", layout="wide"
+    )
     load_frontend_assets(st, page_name=PAGE_NAME)
     ensure_frontend_session(st.session_state)
     set_onboarding_step(st.session_state, "transactions")
@@ -53,15 +61,15 @@ def render_page() -> None:
 
     business_id = str(st.session_state.get("business_id", ""))
     product_id = str(st.session_state.get("active_product_id", ""))
-    product_name = str(st.session_state.get("active_product_name", "Produk Aktif"))
     session_id = str(st.session_state.get("session_id", ""))
     preferences = build_business_preferences(st.session_state)
     limit = int(st.session_state.get("dashboard_limit", DEFAULT_LIMIT))
 
-    dashboard_response = None
-    if is_valid_uuid(business_id):
-        dashboard_response = client.get_dashboard(business_id=business_id, limit=limit)
-
+    dashboard_response = (
+        client.get_dashboard(business_id=business_id, limit=limit)
+        if is_valid_uuid(business_id)
+        else None
+    )
     state = build_onboarding_state(
         business_id=business_id,
         product_id=product_id,
@@ -69,19 +77,16 @@ def render_page() -> None:
     )
     render_navigation(st, state)
 
-    render_hero(
+    render_page_header(
         st,
-        eyebrow="Langkah 3",
-        title="Catat Transaksi",
-        description="Catat transaksi baru ke backend untuk business aktif.",
+        eyebrow="Sales",
+        title="Transactions Workspace",
+        description="Catat penjualan, pantau riwayat transaksi, dan jaga operasional harian tetap rapi.",
+        icon="🧾",
     )
-
-    _render_step_navigation(st)
 
     if state.business_profile_ready:
         render_business_header(st, preferences)
-
-    render_progress_indicator(st, state)
 
     if not state.business_profile_ready:
         render_locked_page(
@@ -94,94 +99,200 @@ def render_page() -> None:
         return
 
     products = _load_products(st, client, business_id)
-    if not products and product_id:
-        products = [{"id": product_id, "name": product_name}]
-
     if not products:
         render_locked_page(
             st,
             message="Produk belum tersedia. Tambahkan produk terlebih dahulu.",
             state=state,
-            next_action_label="Kembali ke Produk",
+            next_action_label="Buka Products",
             next_page="pages/Products.py",
         )
         return
 
-    selected_product = _select_product(st, products)
-    selected_product_id = _get_product_id(selected_product)
-    selected_product_name = _get_product_name(selected_product)
+    summary_response = (
+        client.get_transaction_summary(business_id=business_id, limit=limit)
+        if is_valid_uuid(business_id)
+        else {}
+    )
+    summary_data = response_data(summary_response)
+    dashboard_data = response_data(dashboard_response)
 
-    if not selected_product_id:
-        st.error("Produk terpilih belum memiliki product_id backend.")
-        return
+    _render_transaction_metrics(st, summary_data or dashboard_data)
+    _render_transaction_form(
+        st=st,
+        client=client,
+        business_id=business_id,
+        session_id=session_id,
+        products=products,
+    )
+    _render_transaction_history(st, summary_data or dashboard_data)
 
-    set_active_product_from_response(
-        st.session_state,
-        {
-            "product_id": selected_product_id,
-            "name": selected_product_name,
-        },
+
+def _render_transaction_metrics(st: Any, data: Mapping[str, Any]) -> None:
+    """Render transaction metrics."""
+
+    records = find_items(
+        data, ("transactions", "recent_transactions", "items", "records")
+    )
+    completed = len(
+        [
+            item
+            for item in records
+            if safe_text(item.get("status"), "completed").lower() == "completed"
+        ]
+    )
+    total_amount = sum(
+        float(item.get("amount") or item.get("total") or item.get("revenue") or 0)
+        for item in records
+        if isinstance(item, Mapping)
+    )
+    cols = st.columns(4)
+    with cols[0]:
+        render_metric_card(
+            st,
+            label="Completed",
+            value=str(completed),
+            caption="successful sales",
+            icon="✅",
+        )
+    with cols[1]:
+        render_metric_card(
+            st,
+            label="Revenue",
+            value=format_currency(total_amount),
+            caption="from loaded history",
+            icon="💰",
+        )
+    with cols[2]:
+        render_metric_card(
+            st,
+            label="Pending",
+            value="0",
+            caption="requires review",
+            icon="⏳",
+            tone="warning",
+        )
+    with cols[3]:
+        render_metric_card(
+            st,
+            label="Status",
+            value="Operational",
+            caption="transaction module",
+            icon="🟢",
+            tone="success",
+        )
+
+
+def _render_transaction_form(
+    *,
+    st: Any,
+    client: Any,
+    business_id: str,
+    session_id: str,
+    products: list[dict[str, Any]],
+) -> None:
+    """Render professional transaction form."""
+
+    render_section_header(
+        st,
+        eyebrow="New Sale",
+        title="Record Transaction",
+        description="Pilih produk, jumlah penjualan, dan metode pembayaran.",
     )
 
-    with st.form("transaction_form"):
-        quantity = st.number_input("Jumlah Terjual", min_value=1, value=1, step=1)
-        payment_method = st.selectbox(
-            "Metode Pembayaran",
-            ["cash", "qris", "transfer", "credit_card", "other"],
-            format_func=_payment_label,
+    form_col, preview_col = st.columns([0.58, 0.42])
+    with form_col:
+        with st.form("go_transaction_form"):
+            selected_product = _select_product(st, products)
+            quantity = st.number_input("Quantity sold", min_value=1, value=1, step=1)
+            payment_method = st.selectbox(
+                "Payment method",
+                ["cash", "qris", "transfer", "credit_card", "other"],
+                format_func=_payment_label,
+            )
+            notes = st.text_area("Notes", value="Transaksi penjualan")
+            submitted = st.form_submit_button(
+                "Record Transaction", type="primary", use_container_width=True
+            )
+
+    with preview_col:
+        render_action_card(
+            st,
+            title=_get_product_name(selected_product),
+            description=f"Price {format_currency(selected_product.get('selling_price') or selected_product.get('price') or 0)} · Stock {safe_text(selected_product.get('stock'), '-')}",
+            icon="🛍️",
+            badge="Selected Product",
         )
-        notes = st.text_area("Catatan", value="Transaksi penjualan")
-        submitted = st.form_submit_button("Catat Transaksi", type="primary")
 
     if submitted:
-        payload = {
-            "business_id": business_id,
-            "product_id": selected_product_id,
-            "quantity": int(quantity),
-            "payment_method": str(payment_method),
-            "status": "completed",
-            "notes": notes,
-            "session_id": session_id,
-        }
+        product_id = _get_product_id(selected_product)
+        if not product_id:
+            st.error("Produk terpilih belum memiliki product_id backend.")
+            return
 
-        with st.spinner("Mencatat transaksi..."):
-            response = client.record_transaction(payload)
+        set_active_product_from_response(
+            st.session_state,
+            {"product_id": product_id, "name": _get_product_name(selected_product)},
+        )
+
+        response = client.record_transaction(
+            {
+                "business_id": business_id,
+                "product_id": product_id,
+                "quantity": int(quantity),
+                "payment_method": str(payment_method),
+                "status": "completed",
+                "notes": notes,
+                "session_id": session_id,
+            }
+        )
 
         if response.get("success"):
             st.success("Transaksi berhasil dicatat.")
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                if st.button("Catat Transaksi Lain"):
-                    st.rerun()
-            with col_b:
-                if st.button("Kembali ke Produk"):
-                    switch_page(st, "pages/Products.py")
-            with col_c:
-                if st.button("Buka Dashboard"):
-                    switch_page(st, "pages/Dashboard.py")
+            if st.button("Open Dashboard", type="primary"):
+                switch_page(st, "pages/Dashboard.py")
         else:
             st.error(error_message(response))
-            attempts = response.get("_path_attempts")
-            if attempts:
-                with st.expander("Detail endpoint yang dicoba"):
-                    for attempt in attempts:
-                        st.code(str(attempt))
 
 
-def _render_step_navigation(st: Any) -> None:
-    """Render navigasi mundur/maju pada transaksi."""
+def _render_transaction_history(st: Any, data: Mapping[str, Any]) -> None:
+    """Render transaction table, filters, sorting, and empty states."""
 
-    col_welcome, col_back, col_dash = st.columns(3)
-    with col_welcome:
-        if st.button("← Welcome / Dashboard Awal"):
-            return_to_welcome(st.session_state)
-            switch_page(st, "app.py")
-    with col_back:
-        if st.button("← Produk"):
-            switch_page(st, "pages/Products.py")
-    with col_dash:
-        if st.button("Dashboard →"):
-            switch_page(st, "pages/Dashboard.py")
+    render_section_header(
+        st,
+        eyebrow="History",
+        title="Transaction Table",
+        description="Filter dan urutkan transaksi tanpa mengekspos raw JSON backend.",
+    )
+
+    records = find_items(
+        data, ("transactions", "recent_transactions", "items", "records")
+    )
+    if not records:
+        render_empty_state(
+            st,
+            title="Belum ada riwayat transaksi",
+            description="Riwayat akan tampil setelah transaksi dicatat.",
+            icon="🧾",
+        )
+        return
+
+    filter_col, sort_col = st.columns([0.65, 0.35])
+    with filter_col:
+        keyword = st.text_input(
+            "Filter by product/status",
+            value="",
+            placeholder="Cari produk, status, metode pembayaran...",
+        )
+    with sort_col:
+        sort_by = st.selectbox("Sort by", ["Newest", "Product", "Amount"])
+
+    filtered = _filter_records(records, keyword)
+    sorted_records = _sort_records(filtered, sort_by)
+
+    st.dataframe(
+        _display_records(sorted_records), use_container_width=True, hide_index=True
+    )
 
 
 def _load_products(st: Any, client: Any, business_id: str) -> list[dict[str, Any]]:
@@ -208,56 +319,50 @@ def _load_products(st: Any, client: Any, business_id: str) -> list[dict[str, Any
 
 
 def _select_product(st: Any, products: list[dict[str, Any]]) -> dict[str, Any]:
-    """Render pilihan produk."""
+    """Render product selectbox."""
 
     options = {
         _product_label(product): product
         for product in products
         if _get_product_id(product)
     }
-
     if not options:
         return {}
 
-    selected_label = st.selectbox("Produk", list(options.keys()))
+    selected_label = st.selectbox("Product", list(options.keys()))
     return options[selected_label]
 
 
 def _product_label(product: Mapping[str, Any]) -> str:
-    """Label produk."""
+    """Build product label."""
 
-    name = _get_product_name(product)
-    stock = product.get("stock")
+    parts = [_get_product_name(product)]
     price = product.get("selling_price") or product.get("price")
-
-    parts = [name]
+    stock = product.get("stock")
     if price is not None:
-        parts.append(f"Rp{price}")
+        parts.append(format_currency(price))
     if stock is not None:
-        parts.append(f"stok {stock}")
-
+        parts.append(f"stock {stock}")
     return " · ".join(parts)
 
 
 def _get_product_id(product: Mapping[str, Any]) -> str:
-    """Ambil product id."""
+    """Get product id."""
 
     return str(product.get("product_id") or product.get("id") or "").strip()
 
 
 def _get_product_name(product: Mapping[str, Any]) -> str:
-    """Ambil product name."""
+    """Get product name."""
 
-    return str(
-        product.get("name")
-        or product.get("product_name")
-        or product.get("id")
-        or "Produk"
-    ).strip()
+    return safe_text(
+        product.get("name") or product.get("product_name") or product.get("id"),
+        "Product",
+    )
 
 
 def _payment_label(value: str) -> str:
-    """Ubah label metode pembayaran."""
+    """Render payment method label."""
 
     labels = {
         "cash": "Tunai",
@@ -266,8 +371,77 @@ def _payment_label(value: str) -> str:
         "credit_card": "Kartu Kredit",
         "other": "Lainnya",
     }
-
     return labels.get(value, value)
+
+
+def _filter_records(
+    records: list[dict[str, Any]], keyword: str
+) -> list[dict[str, Any]]:
+    """Filter records."""
+
+    if not keyword.strip():
+        return records
+
+    lowered = keyword.lower()
+    return [
+        record
+        for record in records
+        if lowered in " ".join(str(value).lower() for value in record.values())
+    ]
+
+
+def _sort_records(records: list[dict[str, Any]], sort_by: str) -> list[dict[str, Any]]:
+    """Sort records."""
+
+    if sort_by == "Product":
+        return sorted(
+            records,
+            key=lambda item: safe_text(
+                item.get("product_name") or item.get("product") or item.get("name")
+            ),
+        )
+
+    if sort_by == "Amount":
+        return sorted(
+            records,
+            key=lambda item: float(item.get("amount") or item.get("total") or 0),
+            reverse=True,
+        )
+
+    return list(records)
+
+
+def _display_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Format records for table."""
+
+    rows: list[dict[str, Any]] = []
+    for record in records[:100]:
+        rows.append(
+            {
+                "Date": safe_text(
+                    record.get("date")
+                    or record.get("transaction_date")
+                    or record.get("created_at"),
+                    "-",
+                ),
+                "Product": safe_text(
+                    record.get("product_name")
+                    or record.get("product")
+                    or record.get("name"),
+                    "-",
+                ),
+                "Qty": safe_text(record.get("quantity") or record.get("qty"), "-"),
+                "Amount": format_currency(
+                    record.get("amount")
+                    or record.get("total")
+                    or record.get("revenue")
+                    or 0
+                ),
+                "Payment": safe_text(record.get("payment_method"), "-").title(),
+                "Status": safe_text(record.get("status"), "completed").title(),
+            }
+        )
+    return rows
 
 
 def _get_streamlit() -> Any:

@@ -122,3 +122,1038 @@ div[data-testid="stMetric"] {
 .stAlert {
   border-radius: 1rem;
 }
+/* --------------------------------------------------------------------------
+   Go-UMKM AI Landing Page
+   -------------------------------------------------------------------------- */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@600;700;800&display=swap");
+
+:root {
+  --go-primary: #2563eb;
+  --go-primary-dark: #1d4ed8;
+  --go-secondary: #14b8a6;
+  --go-success: #10b981;
+  --go-indigo: #6366f1;
+  --go-warning: #f59e0b;
+  --go-danger: #ef4444;
+  --go-navy: #0f172a;
+  --go-slate: #334155;
+  --go-muted: #64748b;
+  --go-border: #cbd5e1;
+  --go-soft-border: #e2e8f0;
+  --go-bg: #f1f5f9;
+  --go-soft-bg: #f8fafc;
+  --go-white: #ffffff;
+  --go-shadow-sm: 0 10px 24px rgba(15, 23, 42, 0.08);
+  --go-shadow-md: 0 18px 42px rgba(15, 23, 42, 0.11);
+  --go-shadow-lg: 0 28px 70px rgba(15, 23, 42, 0.14);
+  --go-radius-md: 16px;
+  --go-radius-lg: 20px;
+  --go-radius-xl: 24px;
+}
+
+html,
+body,
+.stApp {
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+}
+
+h1,
+h2,
+h3,
+.go-brand__name,
+.go-section__header h2,
+.go-hero h1 {
+  font-family: "Poppins", "Inter", system-ui, sans-serif;
+}
+
+.go-landing {
+  width: min(1180px, calc(100vw - 48px));
+  margin: 0 auto 56px;
+  color: var(--go-navy);
+}
+
+.go-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 6px 0 18px;
+  padding: 18px 22px;
+  border: 1px solid rgba(226, 232, 240, 0.86);
+  border-radius: var(--go-radius-xl);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--go-shadow-sm);
+  backdrop-filter: blur(14px);
+}
+
+.go-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.go-logo-mark {
+  width: 64px;
+  height: 64px;
+  flex: 0 0 64px;
+  border-radius: 18px;
+  background: var(--go-white);
+  box-shadow: var(--go-shadow-sm);
+}
+
+.go-brand__name {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.go-brand__name span {
+  color: var(--go-success);
+}
+
+.go-brand__tagline {
+  margin-top: 6px;
+  color: var(--go-muted);
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.go-nav__links {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.go-nav__links a,
+.go-secondary-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid rgba(37, 99, 235, 0.18);
+  border-radius: 999px;
+  color: var(--go-primary) !important;
+  background: rgba(37, 99, 235, 0.06);
+  font-weight: 800;
+  text-decoration: none !important;
+}
+
+.go-nav__links a:hover,
+.go-secondary-link:hover {
+  background: rgba(37, 99, 235, 0.11);
+  color: var(--go-primary-dark) !important;
+}
+
+.go-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 0.94fr) minmax(360px, 1.06fr);
+  gap: 34px;
+  align-items: center;
+  min-height: 540px;
+  padding: 48px 42px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 18% 20%, rgba(37, 99, 235, 0.14), transparent 26rem),
+    radial-gradient(circle at 88% 78%, rgba(20, 184, 166, 0.15), transparent 24rem),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.97), rgba(248, 250, 252, 0.92));
+  box-shadow: var(--go-shadow-lg);
+  overflow: hidden;
+}
+
+.go-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 9px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.15);
+  border-radius: 999px;
+  color: var(--go-primary);
+  background: rgba(37, 99, 235, 0.07);
+  font-size: 0.84rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.go-eyebrow__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--go-primary), var(--go-success));
+  box-shadow: 0 0 0 5px rgba(37, 99, 235, 0.1);
+}
+
+.go-hero h1 {
+  max-width: 650px;
+  margin: 0;
+  color: var(--go-navy);
+  font-size: clamp(2.4rem, 5vw, 4.7rem);
+  font-weight: 800;
+  line-height: 1.04;
+  letter-spacing: -0.075em;
+}
+
+.go-hero__subtitle {
+  max-width: 620px;
+  margin: 22px 0 0;
+  color: var(--go-slate);
+  font-size: clamp(1rem, 1.6vw, 1.18rem);
+  line-height: 1.75;
+}
+
+.go-hero__workspace {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  max-width: 540px;
+  margin-top: 28px;
+  padding: 18px 20px;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: var(--go-shadow-sm);
+}
+
+.go-hero__workspace span {
+  grid-row: span 2;
+  align-self: center;
+  padding: 7px 11px;
+  border-radius: 999px;
+  color: var(--go-success);
+  background: rgba(16, 185, 129, 0.11);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.go-hero__workspace strong {
+  color: var(--go-navy);
+  font-size: 1.04rem;
+}
+
+.go-hero__workspace small {
+  color: var(--go-muted);
+  font-weight: 600;
+}
+
+.go-hero__cta-visual {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 30px;
+}
+
+.go-hero__cta-visual span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: 14px;
+  color: var(--go-white);
+  background: linear-gradient(135deg, var(--go-primary), var(--go-primary-dark));
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.28);
+  font-weight: 900;
+}
+
+.go-hero__cta-visual a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 14px;
+  color: var(--go-primary) !important;
+  background: var(--go-white);
+  font-weight: 900;
+  text-decoration: none !important;
+}
+
+.go-hero__visual {
+  position: relative;
+  min-height: 420px;
+}
+
+.go-hero-svg {
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+}
+
+.go-benefit-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  margin: -50px auto 52px;
+  width: min(940px, calc(100% - 80px));
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--go-shadow-md);
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.go-benefit-strip article {
+  padding: 24px 20px;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.go-benefit-strip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: rgba(37, 99, 235, 0.08);
+  font-size: 1.35rem;
+}
+
+.go-benefit-strip strong {
+  display: block;
+  color: var(--go-navy);
+  font-weight: 900;
+}
+
+.go-benefit-strip span {
+  display: block;
+  margin-top: 6px;
+  color: var(--go-muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.go-section {
+  margin-top: 34px;
+  padding: 34px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--go-shadow-sm);
+}
+
+.go-section__header {
+  max-width: 820px;
+  margin-bottom: 26px;
+}
+
+.go-section__header span {
+  display: inline-flex;
+  margin-bottom: 12px;
+  color: var(--go-primary);
+  font-size: 0.84rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.go-section__header h2 {
+  margin: 0;
+  color: var(--go-navy);
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+  line-height: 1.13;
+  letter-spacing: -0.055em;
+}
+
+.go-section__header p {
+  margin: 14px 0 0;
+  color: var(--go-muted);
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
+
+.go-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.go-feature-card,
+.go-stack-card,
+.go-why-card {
+  border: 1px solid rgba(226, 232, 240, 0.92);
+  border-radius: 22px;
+  background: var(--go-white);
+  box-shadow: var(--go-shadow-sm);
+}
+
+.go-feature-card {
+  min-height: 210px;
+  padding: 24px;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.go-feature-card:hover,
+.go-why-card:hover,
+.go-stack-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--go-shadow-md);
+}
+
+.go-feature-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 20px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.12), rgba(20, 184, 166, 0.12));
+  font-size: 1.45rem;
+}
+
+.go-feature-card h3,
+.go-stack-card h3,
+.go-why-card h3 {
+  margin: 0;
+  color: var(--go-navy);
+  font-size: 1.04rem;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+}
+
+.go-feature-card p,
+.go-stack-card p,
+.go-why-card p {
+  margin: 10px 0 0;
+  color: var(--go-muted);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.go-feature-card a {
+  display: inline-flex;
+  margin-top: 18px;
+  color: var(--go-primary) !important;
+  font-weight: 900;
+  text-decoration: none !important;
+}
+
+.go-stack-layout {
+  display: grid;
+  grid-template-columns: 0.9fr 1.1fr;
+  gap: 20px;
+}
+
+.go-stack-card {
+  padding: 28px;
+}
+
+.go-stack-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.go-stack-badge {
+  display: inline-flex;
+  padding: 10px 13px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 999px;
+  color: var(--go-primary-dark);
+  background: rgba(37, 99, 235, 0.07);
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+.go-provider-flow {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.go-provider-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 16px;
+  background: var(--go-soft-bg);
+}
+
+.go-provider-step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  color: var(--go-white);
+  background: linear-gradient(135deg, var(--go-primary), var(--go-secondary));
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.go-provider-step strong {
+  color: var(--go-navy);
+}
+
+.go-why-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.go-why-card {
+  padding: 24px;
+}
+
+.go-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  color: var(--go-white);
+  background: var(--go-success);
+  font-weight: 900;
+}
+
+.go-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 34px;
+  padding: 28px 32px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 26px;
+  background: var(--go-navy);
+  color: var(--go-white);
+  box-shadow: var(--go-shadow-sm);
+}
+
+.go-footer div {
+  display: grid;
+  gap: 4px;
+}
+
+.go-footer strong {
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.go-footer span,
+.go-footer p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.go-footer p {
+  max-width: 560px;
+  text-align: right;
+  line-height: 1.6;
+}
+
+div[data-testid="stButton"] > button[kind="primary"] {
+  min-height: 48px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--go-primary), var(--go-primary-dark));
+  box-shadow: 0 16px 32px rgba(37, 99, 235, 0.26);
+}
+
+div[data-testid="stButton"] > button[kind="secondary"] {
+  min-height: 48px;
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  border-radius: 14px;
+  color: var(--go-primary) !important;
+  background: var(--go-white);
+  box-shadow: var(--go-shadow-sm);
+}
+
+@media (max-width: 1120px) {
+  .go-hero,
+  .go-stack-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .go-feature-grid,
+  .go-why-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .go-benefit-strip {
+    grid-template-columns: repeat(2, 1fr);
+    margin-top: 24px;
+    width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  .go-landing {
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .go-nav,
+  .go-footer,
+  .go-hero__cta-visual {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .go-nav__links {
+    flex-wrap: wrap;
+  }
+
+  .go-hero,
+  .go-section {
+    padding: 24px;
+    border-radius: 24px;
+  }
+
+  .go-feature-grid,
+  .go-why-grid,
+  .go-benefit-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .go-footer p {
+    text-align: left;
+  }
+}
+/* --------------------------------------------------------------------------
+   Go-UMKM AI Stage 3-5 SaaS Application Styles
+   -------------------------------------------------------------------------- */
+
+.go-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0 18px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.1);
+}
+
+.go-sidebar-logo {
+  display: inline-flex;
+  width: 42px;
+  height: 42px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #2563eb, #10b981);
+  box-shadow: 0 16px 28px rgba(16, 185, 129, 0.22);
+}
+
+.go-sidebar-brand strong {
+  display: block;
+  color: #ffffff;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.go-sidebar-brand strong span {
+  color: #34d399;
+}
+
+.go-sidebar-brand small,
+.go-sidebar-footer small,
+.go-sidebar-footer span {
+  display: block;
+  color: rgba(255,255,255,0.72);
+  line-height: 1.35;
+}
+
+.go-sidebar-footer {
+  margin-top: 28px;
+  padding: 14px;
+  border-top: 1px solid rgba(255,255,255,0.16);
+}
+
+.go-page-header,
+.go-business-header,
+.go-progress-card,
+.go-chart-card,
+.go-empty-state {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 24px;
+  background: rgba(255,255,255,0.9);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.08);
+}
+
+.go-page-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 22px;
+  padding: 24px 26px;
+  background:
+    radial-gradient(circle at 8% 20%, rgba(37, 99, 235, 0.12), transparent 20rem),
+    radial-gradient(circle at 92% 50%, rgba(20, 184, 166, 0.10), transparent 22rem),
+    rgba(255,255,255,0.92);
+}
+
+.go-page-header__icon {
+  display: flex;
+  width: 62px;
+  height: 62px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 62px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(37,99,235,0.13), rgba(20,184,166,0.13));
+  font-size: 1.65rem;
+}
+
+.go-page-header__eyebrow,
+.go-section-heading span,
+.go-business-header span {
+  margin: 0 0 7px;
+  color: #2563eb;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.go-page-header h1,
+.go-section-heading h2,
+.go-business-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-family: "Poppins", "Inter", system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.055em;
+}
+
+.go-page-header h1 {
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+}
+
+.go-page-header p,
+.go-section-heading p,
+.go-business-header p {
+  margin: 8px 0 0;
+  color: #64748b;
+  line-height: 1.65;
+}
+
+.go-business-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+}
+
+.go-business-header__badge,
+.go-card-badge,
+.go-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #047857;
+  background: rgba(16, 185, 129, 0.12);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.go-progress-card {
+  margin: 18px 0;
+  padding: 18px;
+}
+
+.go-progress-card__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #0f172a;
+  font-weight: 800;
+}
+
+.go-progress-card__head span {
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.go-progress-track {
+  height: 10px;
+  margin-top: 12px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.go-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2563eb, #14b8a6, #10b981);
+}
+
+.go-metric-card {
+  display: flex;
+  gap: 14px;
+  min-height: 134px;
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid rgba(226,232,240,0.92);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.go-metric-card__icon {
+  display: flex;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: rgba(37, 99, 235, 0.1);
+  font-size: 1.3rem;
+}
+
+.go-metric-card span {
+  display: block;
+  color: #64748b;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.go-metric-card strong {
+  display: block;
+  margin-top: 6px;
+  color: #0f172a;
+  font-size: clamp(1.25rem, 2vw, 1.75rem);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+}
+
+.go-metric-card small {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+}
+
+.go-metric-card--success .go-metric-card__icon {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.go-metric-card--warning .go-metric-card__icon {
+  background: rgba(245, 158, 11, 0.16);
+}
+
+.go-metric-card--indigo .go-metric-card__icon {
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.go-section-heading {
+  margin: 30px 0 16px;
+}
+
+.go-section-heading h2 {
+  font-size: clamp(1.35rem, 2.1vw, 2rem);
+}
+
+.go-chart-card {
+  margin-bottom: 18px;
+  padding: 20px;
+}
+
+.go-action-card {
+  position: relative;
+  min-height: 150px;
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid rgba(226,232,240,0.92);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.go-action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.11);
+}
+
+.go-action-card__icon {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(20,184,166,0.14));
+  font-size: 1.25rem;
+}
+
+.go-action-card h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.02rem;
+  font-weight: 900;
+  letter-spacing: -0.025em;
+}
+
+.go-action-card p {
+  margin: 9px 0 0;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+.go-card-badge {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+}
+
+.go-empty-state {
+  padding: 30px;
+  text-align: center;
+}
+
+.go-empty-state__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 14px;
+  border-radius: 20px;
+  background: rgba(37, 99, 235, 0.09);
+  font-size: 1.55rem;
+}
+
+.go-empty-state h3 {
+  margin: 0;
+  color: #0f172a;
+  font-weight: 900;
+}
+
+.go-empty-state p {
+  max-width: 640px;
+  margin: 8px auto 0;
+  color: #64748b;
+  line-height: 1.65;
+}
+
+.go-status--success {
+  color: #047857;
+  background: rgba(16,185,129,0.12);
+}
+
+.go-status--warning {
+  color: #92400e;
+  background: rgba(245,158,11,0.16);
+}
+
+.go-status--danger {
+  color: #b91c1c;
+  background: rgba(239,68,68,0.12);
+}
+
+div[data-testid="stDataFrame"],
+div[data-testid="stTable"] {
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+}
+
+div[data-testid="stForm"] {
+  padding: 20px;
+  border: 1px solid rgba(226,232,240,0.92);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+div[data-testid="stChatMessage"] {
+  border-radius: 20px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255,255,255,0.86);
+  box-shadow: 0 10px 24px rgba(15,23,42,0.05);
+}
+
+@media (max-width: 960px) {
+  .go-page-header,
+  .go-business-header,
+  .go-metric-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Go-UMKM AI Sidebar Navigation Contrast Fix
+   --------------------------------------------------------------------------
+   Fixes Streamlit sidebar buttons where secondary navigation labels become
+   invisible on white backgrounds. The sidebar navigation is intentionally dark
+   to match the SaaS design system.
+*/
+
+section[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #172554 0%, #1e3a8a 55%, #1e40af 100%);
+}
+
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+  justify-content: flex-start !important;
+  min-height: 48px !important;
+  padding: 0.75rem 1rem !important;
+  border: 1px solid rgba(148, 163, 184, 0.34) !important;
+  border-radius: 14px !important;
+  background: rgba(15, 23, 42, 0.78) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.18) !important;
+  font-weight: 800 !important;
+  text-align: left !important;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+  border-color: rgba(20, 184, 166, 0.55) !important;
+  background: rgba(30, 41, 59, 0.95) !important;
+  color: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button[kind="primary"] {
+  border-color: rgba(147, 197, 253, 0.42) !important;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+  color: #ffffff !important;
+}
+
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button *,
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button p,
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button span,
+section[data-testid="stSidebar"] div[data-testid="stButton"] > button div {
+  color: inherit !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] span {
+  color: #f8fafc;
+}
+
+section[data-testid="stSidebar"] .go-sidebar-brand,
+section[data-testid="stSidebar"] .go-sidebar-footer {
+  background: rgba(15, 23, 42, 0.38);
+}

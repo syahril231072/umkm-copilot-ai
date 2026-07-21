@@ -1,0 +1,9 @@
+app/frontend/assets.py: OK
+app/frontend/navigation.py: OK
+app/frontend/ui_components.py: OK
+pages/Dashboard.py: OK
+pages/Transactions.py: OK
+pages/Marketing.py: OK
+pages/Insights.py: OK
+pages/Export.py: OK
+pages/AI_Assistant.py: OK

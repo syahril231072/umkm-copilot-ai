@@ -59,9 +59,7 @@ def build_onboarding_state(
         next_step = "dashboard"
 
     completed_steps = (
-        int(business_profile_ready)
-        + int(product_ready)
-        + int(has_transactions)
+        int(business_profile_ready) + int(product_ready) + int(has_transactions)
     )
     completion_percent = int((completed_steps / 3) * 100)
 
